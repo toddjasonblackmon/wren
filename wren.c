@@ -321,7 +321,7 @@ static Value run (const Instruc *pc, const Instruc *end)
               unsigned char n = pc[0];
           /* XXX portability: this assumes two unsigned shorts fit in a Value */
               Value frame_info = sp[n];
-              memmove (bp, sp, n * sizeof (Value));
+              memmove ((bp+1-n), sp, n * sizeof (Value));
               sp = bp - n;
               sp[0] = frame_info;
             }
