@@ -160,7 +160,7 @@ enum {
 	HALT,
 	PUSH, POP, PUSH_STRING,
 	GLOBAL_FETCH, GLOBAL_STORE, LOCAL_FETCH,
-	CALL, RETURN,
+	TCALL, CALL, RETURN,
 	BRANCH, JUMP,
 	ADD, SUB, MUL, DIV, MOD, UMUL, UDIV, UMOD, NEGATE,
 	EQ, LT, ULT,
@@ -174,7 +174,7 @@ static const char *opcode_names[] = {
 	"HALT",
 	"PUSH", "POP", "PUSH_STRING",
 	"GLOBAL_FETCH", "GLOBAL_STORE", "LOCAL_FETCH",
-	"CALL", "RETURN",
+	"TCALL", "CALL", "RETURN",
 	"BRANCH", "JUMP",
 	"ADD", "SUB", "MUL", "DIV", "MOD", "UMUL", "UDIV", "UMOD", "NEGATE",
 	"EQ", "LT", "ULT",
@@ -213,7 +213,7 @@ static void dump_dictionary (void)
 
 /* Run VM code starting at 'pc', with the stack allocated the space between
    'end' and dictionary_ptr. Return the result on top of the stack. */
-static Value run (const Instruc *pc, const Instruc *end)
+static Value run (Instruc *pc, const Instruc *end)
 {
 	/* Stack pointer and base pointer 
 	   Initially just above the first free aligned Value cell below
@@ -231,7 +231,7 @@ static Value run (const Instruc *pc, const Instruc *end)
 	{
 #ifndef NDEBUG
 		if (loud)
-			printf ("%u\t%s\n", pc - the_store, opcode_names[*pc]);
+			printf ("RUN: %u\t%s\n", pc - the_store, opcode_names[*pc]);
 #endif
 
 		switch (*pc++)
@@ -292,6 +292,17 @@ static Value run (const Instruc *pc, const Instruc *end)
 				   RETURN instruction doesn't need to know the value of n. CALL,
 				   otoh, does. It looks like <CALL> <n> <addr-byte-1> <addr-byte-2>.
 				   */ 
+			case TCALL:	/* Known tail call. */
+				{
+					unsigned char n = pc[0];
+					/* XXX portability: this assumes two unsigned shorts fit in a Value */
+					Value frame_info = sp[n];
+					memmove ((bp+1-n), sp, n * sizeof (Value));
+					sp = bp - n;
+					sp[0] = frame_info;
+					pc = the_store + *(unsigned short *)(pc + 1);
+				}
+			   	break;
 			case CALL:
 				{
 					/* Optimize tail calls.
@@ -314,13 +325,8 @@ static Value run (const Instruc *pc, const Instruc *end)
 					}
 					if (*cont == RETURN)
 					{
-						/* This is a tail call. Reuse the current frame. */
-						unsigned char n = pc[0];
-						/* XXX portability: this assumes two unsigned shorts fit in a Value */
-						Value frame_info = sp[n];
-						memmove ((bp+1-n), sp, n * sizeof (Value));
-						sp = bp - n;
-						sp[0] = frame_info;
+						/* This is a tail call. Replace opcode and re-run */
+						*--pc = TCALL;
 					}
 					else
 					{
@@ -334,8 +340,8 @@ static Value run (const Instruc *pc, const Instruc *end)
 							f[1] = cont - the_store;
 							bp = sp + pc[0];
 						}
+						pc = the_store + *(unsigned short *)(pc + 1);
 					}
-					pc = the_store + *(unsigned short *)(pc + 1);
 				}
 				break;
 
@@ -424,7 +430,7 @@ static void gen (Instruc opcode)
 {
 #ifndef NDEBUG
 	if (loud)
-		printf ("%u\t%s\n", compiler_ptr - the_store, opcode_names[opcode]);
+		printf ("ASM: %u\t%s\n", compiler_ptr - the_store, opcode_names[opcode]);
 #endif
 	if (available (1))
 	{
@@ -436,7 +442,7 @@ static void gen (Instruc opcode)
 static void gen_ubyte (unsigned char b)
 {
 	if (loud)
-		printf ("%u\tubyte %u\n", compiler_ptr - the_store, b);
+		printf ("ASM: %u\tubyte %u\n", compiler_ptr - the_store, b);
 	if (available (1))
 		*compiler_ptr++ = b;
 }
@@ -444,7 +450,7 @@ static void gen_ubyte (unsigned char b)
 static void gen_ushort (unsigned short u)
 {
 	if (loud)
-		printf ("%u\tushort %u\n", compiler_ptr - the_store, u);
+		printf ("ASM: %u\tushort %u\n", compiler_ptr - the_store, u);
 	if (available (sizeof u))
 	{
 		*(unsigned short *)compiler_ptr = u;
@@ -455,7 +461,7 @@ static void gen_ushort (unsigned short u)
 static void gen_value (Value v)
 {
 	if (loud)
-		printf ("%u\tvalue %d\n", compiler_ptr - the_store, v);
+		printf ("ASM: %u\tvalue %d\n", compiler_ptr - the_store, v);
 	if (available (sizeof v))
 	{
 		*(Value *)compiler_ptr = v;
@@ -473,7 +479,7 @@ static Instruc *forward_ref (void)
 static void resolve (Instruc *ref)
 {
 	if (loud)
-		printf ("%u\tresolved: %u\n", ref - the_store, compiler_ptr - ref);
+		printf ("ASM: %u\tresolved: %u\n", ref - the_store, compiler_ptr - ref);
 	*(unsigned short *)ref = compiler_ptr - ref;
 }
 
@@ -769,7 +775,7 @@ static void parse_factor (void)
 
 			// If previous instruction is a value, then just negate it.
 			if (prev_instruc && *prev_instruc == PUSH) {
-				*(Value *)(compiler_ptr - sizeof (Value)) = -*(Value *)(compiler_ptr - sizeof (Value));
+				((Value *)compiler_ptr)[-1] *= -1;
 			} else {
 				gen (NEGATE);
 			}
