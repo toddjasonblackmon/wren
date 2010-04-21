@@ -24,15 +24,52 @@ fun dump_putx u w =     # Print unsigned hex number with width w
   if 1 < w then dump_putx (srl u 4) (w-1) else 0;
   putc *('0123456789abcdef' + (u & 0xf))
 
-fun dump_iter a l c =		# Print out an address as a short
-	(if c < l then (
-		dump_putx (peek a) 8;
-		(if c % 8 = 7 then cr else putc *' ');
-		dump_iter (a+4) l (c+1))
-	else cr)
+# Dump format
+# 00000000: 0000 0000 0000 0000 0000 0000 0000 0000  AAAAAAAAAAAAAAAA
 
-fun dump a l = cr; dump_iter a ((l+3)/4) 0
+fun put_hdr addr = 
+	dump_putx addr 8;
+	putc 58; putc 32
 
+fun put_hex_line addr len =
+	if 0 < len then (
+		dump_putx (0xff & peek addr) 2;
+		if 1 = len then (putc 32; putc 32; putc 32)
+		else (
+			dump_putx (0xff & peek (addr+1)) 2;
+			putc 32;
+			put_hex_line (addr+2) (len-2))
+	) else 0
+		
+fun put_spaces num = 
+	if 0 < num then (
+		putc 32; 
+		put_spaces (num-1)
+	) else 0
+
+fun put_printable char =
+	if (31 < char & char < 127) then putc char else putc *'.'
+
+
+fun put_ascii addr len = 
+	if 0 < len then (
+		put_printable (0xff & peek addr);
+		put_ascii (addr+1) (len-1)
+	) else 0
+
+
+fun dump addr len = 
+	cr;
+	put_hdr addr;
+	if (len < 16) then (
+		put_hex_line addr len;
+		# We want to add 5 spaces for every full pair missing
+		put_spaces ((16-len)/2*5);
+		put_ascii addr len
+	) else (
+		put_hex_line addr 16;
+		put_ascii addr 16;
+		if (16 = len) then cr else dump (addr+16) (len-16))
 
 puts 'Library Loaded';cr
 
