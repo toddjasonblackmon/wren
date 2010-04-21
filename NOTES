@@ -1,0 +1,53 @@
+Wren Grammar
+
+This is done by someone reading the code with little grammar experience, so errors are not only possible, but quite likely.  Also, when I'm not sure how to define something, I'll just state it.  The main intent here is to document the wren language. 
+
+Whitespace is ignored, except for newlines.
+
+Top level statement is one of the following:
+
+-------------------------------------------------------------------------------
+To define a new function:
+
+fun <fun-name> <arg(1)> <arg(2)> ... <arg(n)> = <function-expression>
+
+1. The function name is a standard alpha and underscore identifier similar to other languages.
+2. No newlines before the = sign.  After that use standard expression newline rules.
+
+-------------------------------------------------------------------------------
+To define a global variable:
+
+let <var-name> = <expression>
+
+1. The result of the expression sets the initial value.
+2. No newlines before the = sign.  After that use standard expression newline rules.
+
+-------------------------------------------------------------------------------
+To delete a variable or function:
+
+forget <identifier>
+
+1. This is only usable on user functions and global variables.
+2. This will forget all variables and functions defined after the named one!
+
+-------------------------------------------------------------------------------
+Operator Precedence, highest to lowest.
+
+function arguments
+()
+*, - unary  right-associative
+* / %
++ -
+< =
+& | ^
+:
+;
+'\n' - acts as an expression end marker (in most situations)
+
+Newlines end expressions in the following cases:
+After a function call, unless inside parentheses or between if-then
+After a constant or string constant, unless inside parentheses or between if-then
+After a variable, unless inside parentheses or between if-then
+Between then and else of an if-then-else block (but a newline is allowed before the 'then' keyword.
+After the else of an if-then-else block
+

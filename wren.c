@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 /* Configuration */
 
 enum {
@@ -31,7 +30,6 @@ enum {
 /* Type of a Wren-language value. */
 typedef int Value;
 
-
 /* Error state */
 
 static const char *complaint = NULL;
@@ -41,7 +39,6 @@ static void complain (const char *msg)
 	if (!complaint)
 		complaint = msg;
 }
-
 
 /* Main data store in RAM
 
@@ -660,9 +657,7 @@ static void parse_arguments (unsigned arity)
 		parse_expr (20); /* 20 is higher than any operator precedence */
 }
 
-/* XXX probably we should have a separate newlines-ok flag instead
-   of pushing the precedence down here... */
-static void parse_factor (int precedence)
+static void parse_factor (void)
 {
 	skip_newline ();
 	switch (token)
@@ -751,14 +746,20 @@ static void parse_factor (int precedence)
 
 		case '*':                   /* character fetch */
 			next ();
-			parse_factor (precedence);
+			parse_factor ();
 			gen (FETCH_BYTE);
 			break;
 
 		case '-':                   /* unary minus */
 			next ();
-			parse_factor (precedence);
-			gen (NEGATE);
+			parse_factor ();
+
+			// If previous instruction is a value, then just negate it.
+			if (prev_instruc && *prev_instruc == PUSH) {
+				*(Value *)(compiler_ptr - sizeof (Value)) = -*(Value *)(compiler_ptr - sizeof (Value));
+			} else {
+				gen (NEGATE);
+			}
 			break;
 
 		case '(':
@@ -777,7 +778,7 @@ static void parse_expr (int precedence)
 {
 	if (complaint)
 		return;
-	parse_factor (precedence);
+	parse_factor ();
 	while (!complaint)
 	{
 		int l, rator;   /* left precedence and operator */
@@ -936,8 +937,10 @@ static void run_fun (void)
 			}
 			dictionary_ptr = dp;  /* forget parameter names */
 		}
-		if (complaint)
+		if (complaint) {
 			dictionary_ptr = dp;  /* forget function. XXX should also forget code */
+			printf ("forgetting function\n");
+		}
 	}
 }
 
@@ -945,6 +948,7 @@ static void run_command (void)
 {
 	complaint = NULL;
 
+	skip_newline ();
 	if (token == 'f')             /* 'fun' */
 	{
 		next ();
@@ -971,9 +975,7 @@ static void run_command (void)
 	}
 }
 
-
 /* The top level */
-
 static void read_eval_print_loop (void)
 {
 	printf ("> ");
@@ -995,3 +997,4 @@ int main ()
 	read_eval_print_loop ();
 	return 0;
 }
+
