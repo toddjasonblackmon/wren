@@ -81,8 +81,7 @@ static unsigned char the_store[store_capacity];
    short offset from the_store instead of a pointer type.
    */
 #define compiler_ptr ( *(unsigned char **) the_store )
-
-static unsigned char *dictionary_ptr = store_end;
+#define dictionary_ptr ( *(unsigned char **) (the_store+4))
 
 static int available (unsigned amount)
 {
@@ -1013,8 +1012,15 @@ static void read_eval_print_loop (void)
 
 int main ()
 {
+	((Value *)the_store)[2] = (unsigned int) the_store;
+	((Value *)the_store)[3] = (unsigned int) store_end;
+	dictionary_ptr = store_end;
 	bind ("cp", 2, a_global, 0, 0);
-	compiler_ptr = the_store + sizeof (Value);
+	bind ("dp", 2, a_global, 4, 0);
+	bind ("c0", 2, a_global, 8, 0);
+	bind ("d0", 2, a_global, 12,0);
+
+	compiler_ptr = the_store + 4*sizeof (Value);
 	read_eval_print_loop ();
 	return 0;
 }

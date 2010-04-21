@@ -70,6 +70,30 @@ fun dump addr len =
 		put_hex_line addr 16;
 		put_ascii addr 16;
 		if (16 = len) then cr else dump (addr+16) (len-16))
+# Lookup
 
-puts 'Library Loaded';cr
+fun putcs n addr = 
+	putc *addr;
+	if 1<n then putcs (n-1) (addr+1) else 0
+
+fun hdr_str_len addr = srl (peek (addr+2)) 4 & 0x0f
+
+fun next_hdr addr = 
+	addr + hdr_str_len addr + 3
+
+fun words_help addr =
+	if addr < d0 then (
+		putcs (hdr_str_len addr) (addr+3);
+		putc 32;
+		words_help (next_hdr addr))
+	else cr
+
+fun words = words_help dp
+fun perc_remaining = 100*(dp-cp)/(d0-c0)
+	
+
+# Nice little header
+cr;cr;puts 'Library Loaded';cr;
+putd (dp-cp); puts ' bytes ('; 
+putd (perc_remaining); puts '%) remaining.'; cr
 
