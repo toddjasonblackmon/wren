@@ -519,17 +519,30 @@ again:
 		token = PUSH;
 		token_value = 0;
 		do {
-			/* XXX check for numeric overflow. It might save space to
-			   use strtol() and strtoul() instead. */
 			token_value = 10 * token_value + ch () - '0';
 			next_char ();
 			if (ch () == 'x' && token_value == 0)
 			{
+				unsigned int digit_count = 0;
 				/* Oh, it's a hex literal, not decimal as we presumed. */
 				next_char ();
-				for (; isxdigit (ch ()); next_char ())
+				for (; isxdigit (ch ()); next_char ()) {
 					token_value = 16 * token_value + hex_char_value (ch ());
-				/* XXX check that there was at least one hex digit after the 'x' */
+					digit_count++;
+				}
+
+				if (digit_count == 0)
+					complain ("Invalid Hex Number");
+				else if (digit_count > 2*sizeof (Value)) {	// allow all bits used for hex entry
+					complain ("Numeric overflow");
+				}
+
+				break;
+			}
+
+			if (token_value < 0)	// overflow
+			{
+				complain ("Numeric overflow");
 				break;
 			}
 		} while (isdigit (ch ()));
@@ -548,7 +561,7 @@ again:
 		} while (isalnum (ch ()) || ch () == '_');
 		*n++ = '\0';
 		if (0 == strcmp (token_name, "then"))
-			token = 't';  /* XXX gee, how mnemonic */
+			token = 't';
 		else if (0 == strcmp (token_name, "forget"))
 			token = 'o';
 		else if (0 == strcmp (token_name, "let"))
@@ -915,6 +928,7 @@ static void run_fun (void)
 	if (expect ('a', "Expected identifier"))
 	{
 		unsigned char *dp = dictionary_ptr;
+		unsigned char *cp = compiler_ptr;
 		Header *f = bind (token_name, strlen (token_name),
 				a_procedure, compiler_ptr - the_store, 0);
 		next ();
@@ -938,15 +952,14 @@ static void run_fun (void)
 			dictionary_ptr = dp;  /* forget parameter names */
 		}
 		if (complaint) {
-			dictionary_ptr = dp;  /* forget function. XXX should also forget code */
-			printf ("forgetting function\n");
+			dictionary_ptr = dp;  /* forget function and code. */
+			compiler_ptr = cp;
 		}
 	}
 }
 
 static void run_command (void)
 {
-	complaint = NULL;
 
 	skip_newline ();
 	if (token == 'f')             /* 'fun' */
@@ -980,12 +993,14 @@ static void read_eval_print_loop (void)
 {
 	printf ("> ");
 	next_char ();
+	complaint = NULL;
 	next ();
 	while (token != EOF)
 	{
 		run_command ();
 		printf ("> ");
 		skip_newline ();
+		complaint = NULL;
 	}
 	printf ("\n");
 }
