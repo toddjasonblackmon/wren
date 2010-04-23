@@ -195,7 +195,7 @@ static const unsigned char primitive_dictionary[] =
 	PRIM_HEADER(GETC, 0, 4), 'g', 'e', 't', 'c',
 	PRIM_HEADER(PUTC, 1, 4), 'p', 'u', 't', 'c',
 	PRIM_HEADER(PEEK, 1, 4), 'p', 'e', 'e', 'k',
-	PRIM_HEADER(POKE, 1, 4), 'p', 'o', 'k', 'e',
+	PRIM_HEADER(POKE, 2, 4), 'p', 'o', 'k', 'e',
 };
 
 #ifndef NDEBUG

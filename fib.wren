@@ -1,7 +1,7 @@
- fun fib n = (if n < 2
+fun fib n = (if n < 2
               then 1
               else fib(n-1) + fib(n-2))
- fib 34
+fib 34
 
 #   # Just for fun a faster way to fib
 #   # fib c is in b

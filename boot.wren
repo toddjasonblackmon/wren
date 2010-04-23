@@ -77,6 +77,7 @@ fun putcs n addr =
 	if 1<n then putcs (n-1) (addr+1) else 0
 
 fun hdr_str_len addr = srl (peek (addr+2)) 4 & 0x0f
+fun hdr_str addr = addr+3
 
 fun next_hdr addr = 
 	addr + hdr_str_len addr + 3
@@ -91,6 +92,39 @@ fun words_help addr =
 fun words = words_help dp
 fun perc_remaining = 100*(dp-cp)/(d0-c0)
 	
+# 1 if equal, 0 if not
+fun streq s1 s2 = 
+	if *s1 = *s2 then
+		if *s1 = 0 then 1
+		else streq (s1+1) (s2+1)
+	else 0
+		
+fun streq_n n s1 s2 =
+	if n = 0 then 1
+	else if *s1 = *s2 then
+		streq_n (n-1) (s1+1) (s2+1)
+	else 0
+
+fun find_help str addr = 
+	if addr < d0 then
+		if (streq_n (hdr_str_len addr) (hdr_str addr) str) then
+			addr
+		else
+			find_help str (next_hdr addr)
+	else
+		0
+
+# Returns header address, should return xt
+fun find str = find_help str dp
+
+# Need to get the address of the running code, but not sure how the header
+# is built yet.
+
+
+# Haven't yet figured out how to do this.
+# fun execute xt =
+# 	poke 0x12345678 0xA5A5A5A5;
+# 	cr
 
 # Nice little header
 cr;cr;puts 'Library Loaded';cr;
