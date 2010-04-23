@@ -114,17 +114,27 @@ fun find_help str addr =
 	else
 		0
 
-# Returns header address, should return xt
-fun find str = find_help str dp
+fun get_xt addr = 
+	if (addr = 0) then 0
+	else (srl (peek (addr)) 2 & 0x3fff) + c0
 
-# Need to get the address of the running code, but not sure how the header
-# is built yet.
+# Returns xt of found string, or 0 otherwise
+fun find str = get_xt (find_help str dp)
 
+# Dangerous stuff here, don't play unless you understand!
+fun execute xt =
+	poke (find 'exec_helper') 0x09090909 ;
+	poke (find 'exec_helper'-1) (0x08 + sla (xt-c0) 16)
 
-# Haven't yet figured out how to do this.
-# fun execute xt =
-# 	poke 0x12345678 0xA5A5A5A5;
-# 	cr
+# Don't ever, ever call this!
+fun exec_helper = cr;cr
+# End dangerous stuff
+
+# Use execute on xt's of no argument functions.
+# Example:
+# fun test = puts 'Hello World';cr
+# You can run test by executing it's xt.
+# execute (find 'test')
 
 # Nice little header
 cr;cr;puts 'Library Loaded';cr;
