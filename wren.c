@@ -166,6 +166,8 @@ enum {
 	AND, OR, XOR, SLA, SRA, SRL,
 	GETC, PUTC,
 	FETCH_BYTE, PEEK, POKE,
+	LOCAL_FETCH_0, LOCAL_FETCH_1, LDS, PUSHW, PUSHB,
+
 };
 
 #ifndef NDEBUG
@@ -180,6 +182,7 @@ static const char *opcode_names[] = {
 	"AND", "OR", "XOR", "SLA", "SRA", "SRL",
 	"GETC", "PUTC",
 	"FETCH_BYTE", "PEEK", "POKE",
+	"LOCAL_FETCH_0", "LOCAL_FETCH_1", "LDS", "PUSHW", "PUSHB",
 };
 #endif
 
@@ -239,12 +242,26 @@ static Value run (Instruc *pc, const Instruc *end)
 				return sp[0];
 				break;
 
+			case LDS:	// special load top of stack
+				need (1);
+				*sp = *(Value*)pc;
+				pc += sizeof (Value);
+				break;
 			case PUSH: 
 				need (1);
 				*--sp = *(Value*)pc;
 				pc += sizeof (Value);
 				break;
-
+			case PUSHW:
+				need (1);
+				*--sp = *(short *)pc;
+				pc += sizeof (short);
+				break;
+			case PUSHB:
+				need (1);
+				*--sp = *(signed char *)pc;
+				pc += sizeof (signed char);
+				break;
 			case POP:
 				++sp;
 				break;
@@ -267,6 +284,14 @@ static Value run (Instruc *pc, const Instruc *end)
 				pc += sizeof (unsigned short);
 				break;
 
+			case LOCAL_FETCH_0:
+				need (1);
+				*--sp = bp[0];
+				break;
+			case LOCAL_FETCH_1:
+				need (1);
+				*--sp = bp[-1];
+				break;
 			case LOCAL_FETCH:
 				need (1);
 				*--sp = bp[-*pc++];
@@ -482,6 +507,10 @@ static void resolve (Instruc *ref)
 	*(unsigned short *)ref = compiler_ptr - ref;
 }
 
+static void block_prev (void)
+{
+	prev_instruc = NULL;	// The previous instruction isn't really known
+}
 
 /* Scanning */
 
@@ -681,8 +710,16 @@ static void parse_factor (void)
 	switch (token)
 	{
 		case PUSH:
-			gen (PUSH);
-			gen_value (token_value);
+			if (token_value < 128 && token_value >= -128) {
+				gen (PUSHB);
+				gen_ubyte (token_value & 0xff);
+			} else if (token_value < 32768 && token_value >= -32768) {
+				gen (PUSHW);
+				gen_ushort (token_value & 0xffff);
+			} else {
+				gen (PUSH);
+				gen_value (token_value);
+			}
 			next ();
 			break;
 
@@ -713,8 +750,14 @@ static void parse_factor (void)
 							break;
 
 						case a_local:
-							gen (LOCAL_FETCH);
-							gen_ubyte (h->binding);
+							if (h->binding == 0)
+								gen (LOCAL_FETCH_0);
+							else if (h->binding == 1)
+								gen (LOCAL_FETCH_1);
+							else {
+								gen (LOCAL_FETCH);
+								gen_ubyte (h->binding);
+							}
 							break;
 
 						case a_procedure:
@@ -757,6 +800,7 @@ static void parse_factor (void)
 						resolve (branch);
 						parse_expr (3);
 						resolve (jump);
+						block_prev ();	// We can't optimize the previous instruction here.
 					}
 				}
 			}
@@ -773,11 +817,17 @@ static void parse_factor (void)
 			parse_factor ();
 
 			// If previous instruction is a value, then just negate it.
-			if (prev_instruc && *prev_instruc == PUSH) {
-				((Value *)compiler_ptr)[-1] *= -1;
-			} else {
+			if (prev_instruc) {
+				if (*prev_instruc == PUSH)
+					((Value *)compiler_ptr)[-1] *= -1;
+				else if (*prev_instruc == PUSHB)
+					((signed char *)compiler_ptr)[-1] *= -1;
+				else if (*prev_instruc == PUSHW)
+					((short *)compiler_ptr)[-1] *= -1;
+				else
+					gen (NEGATE);
+			} else
 				gen (NEGATE);
-			}
 			break;
 
 		case '(':
