@@ -166,7 +166,7 @@ enum {
 	AND, OR, XOR, SLA, SRA, SRL,
 	GETC, PUTC,
 	FETCH_BYTE, PEEK, POKE,
-	LOCAL_FETCH_0, LOCAL_FETCH_1, LDS, PUSHW, PUSHB,
+	LOCAL_FETCH_0, LOCAL_FETCH_1, PUSHW, PUSHB,
 
 };
 
@@ -182,7 +182,7 @@ static const char *opcode_names[] = {
 	"AND", "OR", "XOR", "SLA", "SRA", "SRL",
 	"GETC", "PUTC",
 	"FETCH_BYTE", "PEEK", "POKE",
-	"LOCAL_FETCH_0", "LOCAL_FETCH_1", "LDS", "PUSHW", "PUSHB",
+	"LOCAL_FETCH_0", "LOCAL_FETCH_1", "PUSHW", "PUSHB",
 };
 #endif
 
@@ -242,11 +242,6 @@ static Value run (Instruc *pc, const Instruc *end)
 				return sp[0];
 				break;
 
-			case LDS:	// special load top of stack
-				need (1);
-				*sp = *(Value*)pc;
-				pc += sizeof (Value);
-				break;
 			case PUSH: 
 				need (1);
 				*--sp = *(Value*)pc;
