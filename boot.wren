@@ -129,6 +129,16 @@ fun get_xt addr =
 # Returns xt of found string, or 0 otherwise
 fun find str = get_xt (find_help str dp)
 
+fun not x = -(x+1)
+
+fun byte_mask n = not (sla 0xff (n*8))
+fun byte_or orig byte new = orig & (byte_mask byte) | (sla (new & 0xff) (byte*8))
+fun aligned addr = addr & (not 0x03)
+fun offset addr = addr & 0x03
+
+fun cpoke addr x = 
+	poke (aligned addr) (byte_or (peek (aligned addr)) (offset addr) x)
+
 # This isn't reliable. Probably need to hard wire this anyways
 ## Dangerous stuff here, don't play unless you understand!
 #fun execute xt =
