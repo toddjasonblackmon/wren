@@ -1062,12 +1062,12 @@ int main ()
     ((Value *)the_store)[2] = (Value )the_store;
     ((Value *)the_store)[3] = (Value )store_end;
     dictionary_ptr = store_end;
-    bind ("cp", 2, a_global, 0, 0);
-    bind ("dp", 2, a_global, 4, 0);
-    bind ("c0", 2, a_global, 8, 0);
-    bind ("d0", 2, a_global, 12,0);
+    bind ("cp", 2, a_global, 0 * sizeof(Value), 0);
+    bind ("dp", 2, a_global, 1 * sizeof(Value), 0);
+    bind ("c0", 2, a_global, 2 * sizeof(Value), 0);
+    bind ("d0", 2, a_global, 3 * sizeof(Value), 0);
 
-    compiler_ptr = the_store + 4*sizeof (Value);
+    compiler_ptr = the_store + (4 * sizeof(Value));
     read_eval_print_loop ();
     return 0;
 }
