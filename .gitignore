@@ -1,0 +1,11 @@
+# the executable
+wren
+
+# object files
+*.o
+
+# test files
+examples.out
+
+# macOS cruft
+.DS-Store
