@@ -82,14 +82,14 @@ static unsigned char the_store[store_capacity];
    (If you change Value to a short type, then change compiler_ptr to a
    short offset from the_store instead of a pointer type.
    */
-#define compiler_ptr   ( ((unsigned char **)the_store)[0] )
-#define dictionary_ptr ( ((unsigned char **)the_store)[1] )
+#define compiler_ptr   (((unsigned char **)the_store)[0])
+#define dictionary_ptr (((unsigned char **)the_store)[1])
 
 static int available (unsigned amount)
 {
     if (compiler_ptr + amount <= dictionary_ptr)
         return 1;
-    complain ("Store exhausted");
+    complain("Store exhausted");
     return 0;
 }
 
@@ -102,21 +102,21 @@ static const unsigned char *next_header (const unsigned char *header)
 static Header *bind (const char *name, unsigned length, 
         NameKind kind, unsigned binding, unsigned arity)
 {
-    assert (name);
-    assert (length < (1<<4));
-    assert (kind <= a_local);
-    assert (binding < (1<<14));
-    assert (arity < (1<<4));
-    if (available (sizeof (Header) + length))
+    assert(name);
+    assert(length < (1<<4));
+    assert(kind <= a_local);
+    assert(binding < (1<<14));
+    assert(arity < (1<<4));
+    if (available(sizeof(Header) + length))
     {
-        dictionary_ptr -= sizeof (Header) + length;
+        dictionary_ptr -= sizeof(Header) + length;
         {
             Header *h = (Header *) dictionary_ptr;
             h->kind = kind;
             h->binding = binding;
             h->arity = arity;
             h->name_length = length;
-            memcpy (h->name, name, length);
+            memcpy(h->name, name, length);
             return h;
         }
     }
@@ -127,10 +127,10 @@ static const Header *lookup (const unsigned char *dict,
         const unsigned char *end,
         const char *name, unsigned length)
 {
-    for (; dict < end; dict = next_header (dict))
+    for (; dict < end; dict = next_header(dict))
     {
         const Header *h = (const Header *) dict;
-        if (h->name_length == length && 0 == memcmp (h->name, name, length))
+        if (h->name_length == length && 0 == memcmp(h->name, name, length))
             return h;
     }
     return NULL;
@@ -141,10 +141,10 @@ static const Header *lookup (const unsigned char *dict,
 static void dump (const unsigned char *dict, 
         const unsigned char *end)
 {
-    for (; dict < end; dict = next_header (dict))
+    for (; dict < end; dict = next_header(dict))
     {
         const Header *h = (const Header *) dict;
-        printf ("  %*.*s\t%x %x %x\n", 
+        printf("  %*.*s\t%x %x %x\n", 
                 h->name_length, h->name_length, h->name, 
                 h->kind, h->binding, h->arity);
     }
@@ -169,7 +169,7 @@ enum {
     GETC, PUTC,
     FETCH_BYTE, PEEK, POKE,
     LOCAL_FETCH_0, LOCAL_FETCH_1, PUSHW, PUSHB,
-
+    CCALL, 
 };
 
 #ifndef NDEBUG
@@ -185,6 +185,7 @@ static const char *opcode_names[] = {
     "GETC", "PUTC",
     "FETCH_BYTE", "PEEK", "POKE",
     "LOCAL_FETCH_0", "LOCAL_FETCH_1", "PUSHW", "PUSHB",
+    "CCALL", 
 };
 #endif
 
@@ -207,13 +208,46 @@ static const unsigned char primitive_dictionary[] =
 #if 0
 static void dump_dictionary (void)
 {
-    printf ("dictionary:\n");
-    dump (dictionary_ptr, store_end);
-    dump (primitive_dictionary,
+    printf("dictionary:\n");
+    dump(dictionary_ptr, store_end);
+    dump(primitive_dictionary,
             primitive_dictionary + sizeof primitive_dictionary);
 }
 #endif
 #endif
+
+/* Call to C functions; see bind_c_function and CCALL prim */
+
+typedef Value (*apply_t)();
+static long ccall(apply_t fn, Value *args, unsigned arity)
+{
+  switch (arity)
+  {
+#define A1 args[0]
+#define A2 args[1],A1
+#define A3 args[2],A2
+#define A4 args[3],A3
+#define A5 args[4],A4
+#define A6 args[5],A5
+#define A7 args[6],A6
+    case 0: return (*fn)();
+    case 1: return (*fn)(A1);
+    case 2: return (*fn)(A2);
+    case 3: return (*fn)(A3);
+    case 4: return (*fn)(A4);
+    case 5: return (*fn)(A5);
+    case 6: return (*fn)(A6);
+    case 7: return (*fn)(A7);
+    default: return 0;
+  }
+}
+#undef A1
+#undef A2
+#undef A3
+#undef A4
+#undef A5
+#undef A6
+#undef A7
 
 /* Run VM code starting at 'pc', with the stack allocated the space between
    'end' and dictionary_ptr. Return the result on top of the stack. */
@@ -222,20 +256,17 @@ static Value run (Instruc *pc, const Instruc *end)
     /* Stack pointer and base pointer 
        Initially just above the first free aligned Value cell below
        the dictionary. */
-    Value *sp = (Value *) (((uintptr_t )dictionary_ptr) & ~(sizeof (Value) - 1));
+    Value *sp = (Value *)(((uintptr_t )dictionary_ptr) & ~(sizeof(Value) - 1));
     Value *bp = sp;
 
-#define need(n)                                        \
-    do {                                                 \
-        if ((unsigned char *)sp - (n)*sizeof(Value) < end) \
-        goto stack_overflow;                             \
-    } while (0)
+#define need(n) \
+    if (((unsigned char *)sp - ((n) * sizeof(Value))) < end) goto stack_overflow; else 
 
     for (;;)
     {
 #ifndef NDEBUG
         if (loud)
-            printf ("RUN: %"PRVAL"\t%s\n", pc - the_store, opcode_names[*pc]);
+            printf("RUN: %"PRVAL"\t%s\n", pc - the_store, opcode_names[*pc]);
 #endif
 
         switch (*pc++)
@@ -245,52 +276,52 @@ static Value run (Instruc *pc, const Instruc *end)
                 break;
 
             case PUSH: 
-                need (1);
+                need(1);
                 *--sp = *(Value*)pc;
-                pc += sizeof (Value);
+                pc += sizeof(Value);
                 break;
             case PUSHW:
-                need (1);
+                need(1);
                 *--sp = *(short *)pc;
-                pc += sizeof (short);
+                pc += sizeof(short);
                 break;
             case PUSHB:
-                need (1);
+                need(1);
                 *--sp = *(signed char *)pc;
-                pc += sizeof (signed char);
+                pc += sizeof(signed char);
                 break;
             case POP:
                 ++sp;
                 break;
 
             case PUSH_STRING:
-                need (1);
+                need(1);
                 *--sp = (Value)pc;
                 /* N.B. this op is slower the longer the string is! */
-                pc += strlen ((const char *)pc) + 1;
+                pc += strlen((const char *)pc) + 1;
                 break;
 
             case GLOBAL_FETCH:
-                need (1);
+                need(1);
                 *--sp = *(Value *)(the_store + *(unsigned short *)pc);
-                pc += sizeof (unsigned short);
+                pc += sizeof(unsigned short);
                 break;
 
             case GLOBAL_STORE:
                 *(Value *)(the_store + *(unsigned short *)pc) = sp[0];
-                pc += sizeof (unsigned short);
+                pc += sizeof(unsigned short);
                 break;
 
             case LOCAL_FETCH_0:
-                need (1);
+                need(1);
                 *--sp = bp[0];
                 break;
             case LOCAL_FETCH_1:
-                need (1);
+                need(1);
                 *--sp = bp[-1];
                 break;
             case LOCAL_FETCH:
-                need (1);
+                need(1);
                 *--sp = bp[-*pc++];
                 break;
 
@@ -318,7 +349,7 @@ static Value run (Instruc *pc, const Instruc *end)
                     unsigned char n = pc[0];
                     /* XXX portability: this assumes two unsigned shorts fit in a Value */
                     Value frame_info = sp[n];
-                    memmove ((bp+1-n), sp, n * sizeof (Value));
+                    memmove((bp+1-n), sp, n * sizeof(Value));
                     sp = bp - n;
                     sp[0] = frame_info;
                     pc = the_store + *(unsigned short *)(pc + 1);
@@ -338,7 +369,7 @@ static Value run (Instruc *pc, const Instruc *end)
                        (Maybe that expense would be worth incurring, though, for the
                        sake of smaller compiled code.)
                        */
-                    const Instruc *cont = pc + 1 + sizeof (unsigned short);
+                    const Instruc *cont = pc + 1 + sizeof(unsigned short);
                     while (*cont == JUMP)
                     {
                         ++cont;
@@ -352,7 +383,7 @@ static Value run (Instruc *pc, const Instruc *end)
                     else
                     {
                         /* This is a non-tail call. Build a new frame. */ 
-                        need (1);
+                        need(1);
                         --sp;
                         {
                             /* XXX portability: this assumes two unsigned shorts fit in a Value */
@@ -365,6 +396,15 @@ static Value run (Instruc *pc, const Instruc *end)
                     }
                 }
                 break;
+
+            case CCALL:
+                {
+                    unsigned char n = *pc++;
+                    need(1);
+                    *--sp = ccall((apply_t )(*(Value*)pc), bp + 1 - n, n);
+                    pc += sizeof(Value);
+                }
+                break; /* XXX eliminate RETURN op always generated after CCALL by failling through... */
 
             case RETURN:
                 {
@@ -381,7 +421,7 @@ static Value run (Instruc *pc, const Instruc *end)
                 if (0 == *sp++)
                     pc += *(unsigned short *)pc;
                 else
-                    pc += sizeof (unsigned short);
+                    pc += sizeof(unsigned short);
                 break;
 
             case JUMP:
@@ -411,12 +451,12 @@ static Value run (Instruc *pc, const Instruc *end)
             case SRL:  sp[1] = (unsigned)sp[1] >> (unsigned)sp[0]; ++sp; break;
 
             case GETC:
-                   need (1);
-                   *--sp = getc (stdin);
+                   need(1);
+                   *--sp = getc(stdin);
                    break;
 
             case PUTC:
-                   putc (sp[0], stdout);
+                   putc(sp[0], stdout);
                    break;
 
             case FETCH_BYTE:
@@ -433,12 +473,12 @@ static Value run (Instruc *pc, const Instruc *end)
                    ++sp;
                    break;
 
-            default: assert (0);
+            default: assert(0);
         }
     }
 
 stack_overflow:
-    complain ("Stack overflow");
+    complain("Stack overflow");
     return 0;
 }
 
@@ -451,9 +491,9 @@ static void gen (Instruc opcode)
 {
 #ifndef NDEBUG
     if (loud)
-        printf ("ASM: %"PRVAL"\t%s\n", compiler_ptr - the_store, opcode_names[opcode]);
+        printf("ASM: %"PRVAL"\t%s\n", compiler_ptr - the_store, opcode_names[opcode]);
 #endif
-    if (available (1))
+    if (available(1))
     {
         prev_instruc = compiler_ptr;
         *compiler_ptr++ = opcode;
@@ -463,16 +503,16 @@ static void gen (Instruc opcode)
 static void gen_ubyte (unsigned char b)
 {
     if (loud)
-        printf ("ASM: %"PRVAL"\tubyte %u\n", compiler_ptr - the_store, b);
-    if (available (1))
+        printf("ASM: %"PRVAL"\tubyte %u\n", compiler_ptr - the_store, b);
+    if (available(1))
         *compiler_ptr++ = b;
 }
 
 static void gen_ushort (unsigned short u)
 {
     if (loud)
-        printf ("ASM: %"PRVAL"\tushort %u\n", compiler_ptr - the_store, u);
-    if (available (sizeof u))
+        printf("ASM: %"PRVAL"\tushort %u\n", compiler_ptr - the_store, u);
+    if (available(sizeof u))
     {
         *(unsigned short *)compiler_ptr = u;
         compiler_ptr += sizeof u;
@@ -482,8 +522,8 @@ static void gen_ushort (unsigned short u)
 static void gen_value (Value v)
 {
     if (loud)
-        printf ("ASM: %"PRVAL"\tvalue %"PRVAL"\n", compiler_ptr - the_store, v);
-    if (available (sizeof v))
+        printf("ASM: %"PRVAL"\tvalue %"PRVAL"\n", compiler_ptr - the_store, v);
+    if (available(sizeof v))
     {
         *(Value *)compiler_ptr = v;
         compiler_ptr += sizeof v;
@@ -493,14 +533,14 @@ static void gen_value (Value v)
 static Instruc *forward_ref (void)
 {
     Instruc *ref = compiler_ptr;
-    compiler_ptr += sizeof (unsigned short);
+    compiler_ptr += sizeof(unsigned short);
     return ref;
 }
 
 static void resolve (Instruc *ref)
 {
     if (loud)
-        printf ("ASM: %"PRVAL"\tresolved: %"PRVAL"\n", ref - the_store, compiler_ptr - ref);
+        printf("ASM: %"PRVAL"\tresolved: %"PRVAL"\n", ref - the_store, compiler_ptr - ref);
     *(unsigned short *)ref = compiler_ptr - ref;
 }
 
@@ -520,7 +560,7 @@ static char token_name[16];
 static int ch (void)
 {
     if (input_char == unread)
-        input_char = getc (stdin);
+        input_char = getc(stdin);
     return input_char;
 }
 
@@ -532,40 +572,40 @@ static void next_char (void)
 
 static void skip_line (void)
 {
-    while (ch () != '\n' && ch () != EOF)
-        next_char ();
+    while (ch() != '\n' && ch() != EOF)
+        next_char();
 }
 
 static unsigned hex_char_value (char c)
 {
-    return c <= '9' ? c - '0' : toupper (c) - ('A'-10);
+    return c <= '9' ? c - '0' : toupper(c) - ('A'-10);
 }
 
 static void next (void)
 {
 again:
 
-    if (isdigit (ch ()))
+    if (isdigit(ch()))
     {
         token = PUSH;
         token_value = 0;
         do {
-            token_value = 10 * token_value + ch () - '0';
-            next_char ();
-            if (ch () == 'x' && token_value == 0)
+            token_value = 10 * token_value + ch() - '0';
+            next_char();
+            if (ch() == 'x' && token_value == 0)
             {
                 unsigned int digit_count = 0;
                 /* Oh, it's a hex literal, not decimal as we presumed. */
-                next_char ();
-                for (; isxdigit (ch ()); next_char ()) {
-                    token_value = 16 * token_value + hex_char_value (ch ());
+                next_char();
+                for (; isxdigit(ch()); next_char()) {
+                    token_value = 16 * token_value + hex_char_value(ch());
                     digit_count++;
                 }
 
                 if (digit_count == 0)
-                    complain ("Invalid Hex Number");
-                else if (digit_count > 2*sizeof (Value)) {  // allow all bits used for hex entry
-                    complain ("Numeric overflow");
+                    complain("Invalid Hex Number");
+                else if (digit_count > 2*sizeof(Value)) {  // allow all bits used for hex entry
+                    complain("Numeric overflow");
                 }
 
                 break;
@@ -573,66 +613,66 @@ again:
 
             if (token_value < 0)    // overflow
             {
-                complain ("Numeric overflow");
+                complain("Numeric overflow");
                 break;
             }
-        } while (isdigit (ch ()));
+        } while (isdigit(ch()));
     }
-    else if (isalpha (ch ()) || ch () == '_')
+    else if (isalpha(ch()) || ch() == '_')
     {
         char *n = token_name;
         do {
             if (token_name + sizeof token_name == n + 1)
             {
-                complain ("Identifier too long");
+                complain("Identifier too long");
                 break;
             }
-            *n++ = ch ();
-            next_char ();
-        } while (isalnum (ch ()) || ch () == '_');
+            *n++ = ch();
+            next_char();
+        } while (isalnum(ch()) || ch() == '_');
         *n++ = '\0';
-        if (0 == strcmp (token_name, "then"))
+        if (0 == strcmp(token_name, "then"))
             token = 't';
-        else if (0 == strcmp (token_name, "forget"))
+        else if (0 == strcmp(token_name, "forget"))
             token = 'o';
-        else if (0 == strcmp (token_name, "let"))
+        else if (0 == strcmp(token_name, "let"))
             token = 'l';
-        else if (0 == strcmp (token_name, "if"))
+        else if (0 == strcmp(token_name, "if"))
             token = 'i';
-        else if (0 == strcmp (token_name, "fun"))
+        else if (0 == strcmp(token_name, "fun"))
             token = 'f';
-        else if (0 == strcmp (token_name, "else"))
+        else if (0 == strcmp(token_name, "else"))
             token = 'e';
         else
             token = 'a';
     }
     else
-        switch (ch ())
+        switch (ch())
         {
             case '\'':
-                next_char ();
+                next_char();
                 {
                     /* We need to stick this string somewhere; after reaching
                        the parser, if successfully parsed, it would be compiled
                        into the instruction stream right after the next opcode.
                        So just put it there -- but don't yet update compiler_ptr. */
                     unsigned char *s = compiler_ptr + 1;
-                    for (; ch () != '\''; next_char ())
+                    for (; ch() != '\''; next_char())
                     {
-                        if (ch () == EOF)
+                        if (ch() == EOF)
                         {
-                            complain ("Unterminated string");
+                            complain("Unterminated string");
                             token = EOF;
                             return;
                         }
-                        if (!available (s + 2 - compiler_ptr))
+                        if (!available(s + 2 - compiler_ptr))
                         {
-                            token = '\n';
+                            token = '\n';  /* XXX need more for error recovery? */
                             return;
                         }
-                        *s++ = ch ();
+                        *s++ = ch();
                     }
-                    next_char ();
+                    next_char();
                     *s = '\0';
                     token = '\'';
                 }
@@ -654,22 +694,22 @@ again:
             case ';':
             case '\n':
             case EOF:
-                token = ch ();
-                next_char ();
+                token = ch();
+                next_char();
                 break;
 
             case ' ':
             case '\t':
             case '\r':
-                next_char ();
+                next_char();
                 goto again;
 
             case '#':
-                skip_line ();
+                skip_line();
                 goto again;
 
             default:
-                complain ("Lexical error");
+                complain("Lexical error");
                 token = '\n';  /* XXX need more for error recovery */
                 break;
         }
@@ -682,14 +722,14 @@ static int expect (unsigned char expected, const char *plaint)
 {
     if (token == expected)
         return 1;
-    complain (plaint);
+    complain(plaint);
     return 0;
 }
 
 static void skip_newline (void)
 {
     while (!complaint && token == '\n')
-        next ();
+        next();
 }
 
 static void parse_expr (int precedence);
@@ -698,79 +738,79 @@ static void parse_arguments (unsigned arity)
 {
     unsigned i;
     for (i = 0; i < arity; ++i)
-        parse_expr (20); /* 20 is higher than any operator precedence */
+        parse_expr(20); /* 20 is higher than any operator precedence */
 }
 
 static void parse_factor (void)
 {
-    skip_newline ();
+    skip_newline();
     switch (token)
     {
         case PUSH:
             if (token_value < 128 && token_value >= -128) {
-                gen (PUSHB);
-                gen_ubyte (token_value & 0xff);
+                gen(PUSHB);
+                gen_ubyte(token_value & 0xff);
             } else if (token_value < 32768 && token_value >= -32768) {
-                gen (PUSHW);
-                gen_ushort (token_value & 0xffff);
+                gen(PUSHW);
+                gen_ushort(token_value & 0xffff);
             } else {
-                gen (PUSH);
-                gen_value (token_value);
+                gen(PUSH);
+                gen_value(token_value);
             }
-            next ();
+            next();
             break;
 
         case '\'':                  /* string constant */
-            gen (PUSH_STRING);
-            compiler_ptr += strlen ((const char *)compiler_ptr) + 1;
-            next ();
+            gen(PUSH_STRING);
+            compiler_ptr += strlen((const char *)compiler_ptr) + 1;
+            next();
             break;
 
         case 'a':                   /* identifier */
             {
-                const Header *h = lookup (dictionary_ptr, store_end,
-                        token_name, strlen (token_name));
+                const Header *h = lookup(dictionary_ptr, store_end,
+                        token_name, strlen(token_name));
                 if (!h)
-                    h = lookup (primitive_dictionary, 
+                    h = lookup(primitive_dictionary, 
                             primitive_dictionary + sizeof primitive_dictionary,
-                            token_name, strlen (token_name));
+                            token_name, strlen(token_name));
                 if (!h)
-                    complain ("Unknown identifier");
+                    complain("Unknown identifier");
                 else
                 {
-                    next ();
+                    next();
                     switch (h->kind)
                     {
                         case a_global:
-                            gen (GLOBAL_FETCH);
-                            gen_ushort (h->binding);
+                            gen(GLOBAL_FETCH);
+                            gen_ushort(h->binding);
                             break;
 
                         case a_local:
                             if (h->binding == 0)
-                                gen (LOCAL_FETCH_0);
+                                gen(LOCAL_FETCH_0);
                             else if (h->binding == 1)
-                                gen (LOCAL_FETCH_1);
+                                gen(LOCAL_FETCH_1);
                             else {
-                                gen (LOCAL_FETCH);
-                                gen_ubyte (h->binding);
+                                gen(LOCAL_FETCH);
+                                gen_ubyte(h->binding);
                             }
                             break;
 
                         case a_procedure:
-                            parse_arguments (h->arity);
-                            gen (CALL);
-                            gen_ubyte (h->arity);
-                            gen_ushort (h->binding);
+                            parse_arguments(h->arity);
+                            gen(CALL);
+                            gen_ubyte(h->arity);
+                            gen_ushort(h->binding);
                             break;
 
                         case a_primitive:
-                            parse_arguments (h->arity);
-                            gen (h->binding);
+                            parse_arguments(h->arity);
+                            gen(h->binding);
                             break;
 
                         default:
-                            assert (0);
+                            assert(0);
                     }
                 }
             }
@@ -779,39 +819,39 @@ static void parse_factor (void)
         case 'i':                   /* if-then-else */
             {
                 Instruc *branch, *jump;
-                next ();
-                parse_expr (0);
-                gen (BRANCH);
-                branch = forward_ref ();
-                skip_newline ();
-                if (expect ('t', "Expected 'then'"))
+                next();
+                parse_expr(0);
+                gen(BRANCH);
+                branch = forward_ref();
+                skip_newline();
+                if (expect('t', "Expected 'then'"))
                 {
-                    next ();
-                    parse_expr (3);
-                    gen (JUMP);
-                    jump = forward_ref ();
-                    skip_newline ();
-                    if (expect ('e', "Expected 'else'"))
+                    next();
+                    parse_expr(3);
+                    gen(JUMP);
+                    jump = forward_ref();
+                    skip_newline();
+                    if (expect('e', "Expected 'else'"))
                     {
-                        next ();
-                        resolve (branch);
-                        parse_expr (3);
-                        resolve (jump);
-                        block_prev ();  // We can't optimize the previous instruction here.
+                        next();
+                        resolve(branch);
+                        parse_expr(3);
+                        resolve(jump);
+                        block_prev();  // We can't optimize the previous instruction here.
                     }
                 }
             }
             break;
 
         case '*':                   /* character fetch */
-            next ();
-            parse_factor ();
-            gen (FETCH_BYTE);
+            next();
+            parse_factor();
+            gen(FETCH_BYTE);
             break;
 
         case '-':                   /* unary minus */
-            next ();
-            parse_factor ();
+            next();
+            parse_factor();
 
             // If previous instruction is a value, then just negate it.
             if (prev_instruc) {
@@ -822,20 +862,20 @@ static void parse_factor (void)
                 else if (*prev_instruc == PUSHW)
                     ((short *)compiler_ptr)[-1] *= -1;
                 else
-                    gen (NEGATE);
+                    gen(NEGATE);
             } else
-                gen (NEGATE);
+                gen(NEGATE);
             break;
 
         case '(':
-            next ();
-            parse_expr (0);
-            if (expect (')', "Syntax error: expected ')'"))
-                next ();
+            next();
+            parse_expr(0);
+            if (expect(')', "Syntax error: expected ')'"))
+                next();
             break;
 
         default:
-            complain ("Syntax error: expected a factor");
+            complain("Syntax error: expected a factor");
     }
 }
 
@@ -843,13 +883,13 @@ static void parse_expr (int precedence)
 {
     if (complaint)
         return;
-    parse_factor ();
+    parse_factor();
     while (!complaint)
     {
         int l, rator;   /* left precedence and operator */
 
         if (precedence == 0)
-            skip_newline ();
+            skip_newline();
 
         switch (token) {
             case ';': l = 1; rator = POP; break;
@@ -876,134 +916,134 @@ static void parse_expr (int precedence)
         if (l < precedence || complaint)
             return;
 
-        next ();
-        skip_newline ();
+        next();
+        skip_newline();
         if (rator == POP)
-            gen (rator);
+            gen(rator);
         else if (rator == GLOBAL_STORE)
         {
             if (prev_instruc && *prev_instruc == GLOBAL_FETCH)
             {
                 unsigned short addr = *(unsigned short *)(prev_instruc + 1);
                 compiler_ptr = prev_instruc;
-                parse_expr (l);
-                gen (GLOBAL_STORE);
-                gen_ushort (addr);
+                parse_expr(l);
+                gen(GLOBAL_STORE);
+                gen_ushort(addr);
                 continue;
             }
             else
             {
-                complain ("Not an l-value");
+                complain("Not an l-value");
                 break;
             }
         }
-        parse_expr (l + 1);
+        parse_expr(l + 1);
         if (rator != POP)
-            gen (rator);
+            gen(rator);
     }
 }
 
 static void parse_done (void)
 {
     if (token != EOF && token != '\n')
-        complain ("Syntax error: unexpected token");
+        complain("Syntax error: unexpected token");
 }
 
 static Value scratch_expr (void)
 {
     Instruc *start = compiler_ptr;
-    parse_expr (-1);
-    parse_done ();
-    gen (HALT);
+    parse_expr(-1);
+    parse_done();
+    gen(HALT);
     {
         Instruc *end = compiler_ptr;
         compiler_ptr = start;
-        return complaint ? 0 : run (start, end);
+        return complaint ? 0 : run(start, end);
     }
 }
 
 static void run_expr (void)
 {
-    Value v = scratch_expr ();
+    Value v = scratch_expr();
     if (!complaint)
-        printf ("%"PRVAL"\n", v);
+        printf("%"PRVAL"\n", v);
 }
 
 static void run_let (void)
 {
-    if (expect ('a', "Expected identifier")
-            && available (sizeof (Value)))
+    if (expect('a', "Expected identifier")
+            && available(sizeof(Value)))
     {
         unsigned char *cell = compiler_ptr;
-        gen_value (0);
-        bind (token_name, strlen (token_name),
+        gen_value(0);
+        bind(token_name, strlen(token_name),
                 a_global, cell - the_store, 0);
-        next ();
-        if (expect ('=', "Expected '='"))
+        next();
+        if (expect('=', "Expected '='"))
         {
-            next ();
-            *(Value*)cell = scratch_expr ();
+            next();
+            *(Value*)cell = scratch_expr();
         }
     }
 }
 
 static void run_forget (void)
 {
-    if (expect ('a', "Expected identifier"))
+    if (expect('a', "Expected identifier"))
     {
-        const Header *h = lookup (dictionary_ptr, store_end,
-                token_name, strlen (token_name));
+        const Header *h = lookup(dictionary_ptr, store_end,
+                token_name, strlen(token_name));
         if (!h)
-            complain ("Unknown identifier");
+            complain("Unknown identifier");
         else if (h->kind != a_global && h->kind != a_procedure)
-            complain ("Not a definition");
-        next ();
-        parse_done ();
+            complain("Not a definition");
+        next();
+        parse_done();
         if (!complaint)
         {
             unsigned char *cp = the_store + h->binding;
             unsigned char *dp = 
-                (unsigned char *) next_header ((const unsigned char *) h);
+                (unsigned char *) next_header((const unsigned char *) h);
             if (the_store <= cp && cp <= dp && dp <= store_end)
             {
                 compiler_ptr = cp;
                 dictionary_ptr = dp;
             }
             else
-                complain ("Dictionary corrupted");
+                complain("Dictionary corrupted");
         }
     }
 }
 
 static void run_fun (void)
 {
-    if (expect ('a', "Expected identifier"))
+    if (expect('a', "Expected identifier"))
     {
         unsigned char *dp = dictionary_ptr;
         unsigned char *cp = compiler_ptr;
-        Header *f = bind (token_name, strlen (token_name),
+        Header *f = bind(token_name, strlen(token_name),
                 a_procedure, compiler_ptr - the_store, 0);
-        next ();
+        next();
         if (f)
         {
             unsigned char *dp = dictionary_ptr;
             while (token == 'a')
             {
                 /* XXX check for too many parameters */
-                bind (token_name, strlen (token_name),
-                        a_local, f->arity++, 0);
-                next ();
+                bind(token_name, strlen(token_name), a_local, f->arity++, 0);
+                next();
             }
-            if (expect ('=', "Expected '='"))
+            if (expect('=', "Expected '='"))
             {
-                next ();
-                parse_expr (-1);
-                parse_done ();
-                gen (RETURN);
+                next();
+                parse_expr(-1);
+                parse_done();
+                gen(RETURN);
             }
             dictionary_ptr = dp;  /* forget parameter names */
         }
-        if (complaint) {
+        if (complaint)
+        {
             dictionary_ptr = dp;  /* forget function and code. */
             compiler_ptr = cp;
         }
@@ -1013,48 +1053,63 @@ static void run_fun (void)
 static void run_command (void)
 {
 
-    skip_newline ();
+    skip_newline();
     if (token == 'f')             /* 'fun' */
     {
-        next ();
-        run_fun ();
+        next();
+        run_fun();
     }
     else if (token == 'l')        /* 'let' */
     {
-        next ();
-        run_let ();
+        next();
+        run_let();
     }
     else if (token == 'o')        /* 'forget' */
     {
-        next ();
-        run_forget ();
+        next();
+        run_forget();
     }
     else
-        run_expr ();
+        run_expr();
 
     if (complaint)
     {
-        printf ("%s\n", complaint);
-        skip_line ();  /* i.e., flush any buffered input, sort of */
-        next ();
+        printf("%s\n", complaint);
+        skip_line();  /* i.e., flush any buffered input, sort of */
+        next();
     }
 }
 
 /* The top level */
 static void read_eval_print_loop (void)
 {
-    printf ("> ");
-    next_char ();
+    printf("> ");
+    next_char();
     complaint = NULL;
-    next ();
+    next();
     while (token != EOF)
     {
-        run_command ();
-        printf ("> ");
-        skip_newline ();
+        run_command();
+        printf("> ");
+        skip_newline();
         complaint = NULL;
     }
-    printf ("\n");
+    printf("\n");
+}
+
+static Value tstfn2 (Value a1, Value a2)
+{
+    printf("tstfn2: %"PRVAL"\t%"PRVAL"\n", a1, a2);
+    return a1 - a2;
+}
+
+static void bind_c_function (const char *name, apply_t fn, const unsigned arity)
+{
+    (void )bind(name, strlen(name), a_procedure, compiler_ptr - the_store, arity);
+    gen(CCALL);
+    gen_ubyte(arity);
+    gen_value((Value )fn);
+    gen(RETURN);
 }
 
 int main ()
@@ -1062,13 +1117,16 @@ int main ()
     ((Value *)the_store)[2] = (Value )the_store;
     ((Value *)the_store)[3] = (Value )store_end;
     dictionary_ptr = store_end;
-    bind ("cp", 2, a_global, 0 * sizeof(Value), 0);
-    bind ("dp", 2, a_global, 1 * sizeof(Value), 0);
-    bind ("c0", 2, a_global, 2 * sizeof(Value), 0);
-    bind ("d0", 2, a_global, 3 * sizeof(Value), 0);
+    bind("cp", 2, a_global, 0 * sizeof(Value), 0);
+    bind("dp", 2, a_global, 1 * sizeof(Value), 0);
+    bind("c0", 2, a_global, 2 * sizeof(Value), 0);
+    bind("d0", 2, a_global, 3 * sizeof(Value), 0);
 
     compiler_ptr = the_store + (4 * sizeof(Value));
-    read_eval_print_loop ();
+
+    bind_c_function("tstfn2", tstfn2, 2);
+
+    read_eval_print_loop();
     return 0;
 }
 
