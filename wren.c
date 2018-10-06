@@ -4,7 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Configuration */
+#include "wren.h" /* Configuration & API */
+
+/* More Configuration */
 
 enum {
     /* Capacity in bytes. */
@@ -14,12 +16,100 @@ enum {
     loud = 0,
 };
 
+/* Accessors for unaligned storage in dictionary and code spaces */
+
+#if WREN_UNALIGNED_ACCESS_OK
+
+static inline uint16_t fetch_2u (const uint8_t *p)
+{
+    return *(uint16_t *)p;
+}
+
+static inline int16_t fetch_2i (const uint8_t *p)
+{
+    return *(int16_t *)p;
+}
+
+static inline wValue fetch_wV (const uint8_t *p)
+{
+    return *(wValue *)p;
+}
+
+static inline void write_2i (uint8_t *p, const int16_t v)
+{
+    *(int16_t *)p = v;
+}
+
+static inline void write_2u (uint8_t *p, const uint16_t v)
+{
+    *(uint16_t *)p = v;
+}
+
+static inline void write_wV (uint8_t *p, const wValue v)
+{
+    *(wValue *)p = v;
+}
+
+#else
+
+// Unaligned access is not supported by hardware.
+// It looks a little silly using memcpy() here, but it has a big advantage:
+// with sufficient optimization, e.g., -Os, the compiler will expand it inline 
+// using a simple (and hopfully optimal) instruction sequence. Together with
+// the union, this code uses no Undefined Behavior as long as the data are 
+// written and read with the matching pair write_XX and fetch_XX.
+
+static inline uint16_t fetch_2u (const uint8_t *p)
+{
+    union { uint16_t v; uint8_t b[sizeof(uint16_t)]; } u;
+    memcpy(u.b, p, sizeof(uint16_t));
+    return u.v;
+}
+
+static inline int16_t fetch_2i (const uint8_t *p)
+{
+    union { int16_t v; uint8_t b[sizeof(int16_t)]; } u;
+    memcpy(u.b, p, sizeof(int16_t));
+    return u.v;
+}
+
+static inline wValue fetch_wV (const uint8_t *p)
+{
+    union { wValue v; uint8_t b[SIZEOF_WVALUE]; } u;
+    memcpy(u.b, p, SIZEOF_WVALUE);
+    return u.v;
+}
+
+static inline void write_2u (uint8_t *p, const uint16_t v)
+{
+    union { uint16_t v; uint8_t b[sizeof(uint16_t)]; } u;
+    u.v = v;
+    memcpy(p, u.b, sizeof(uint16_t));
+}
+
+static inline void write_2i (uint8_t *p, const int16_t v)
+{
+    union { int16_t v; uint8_t b[sizeof(int16_t)]; } u;
+    u.v = v;
+    memcpy(p, u.b, sizeof(int16_t));
+}
+
+static inline void write_wV (uint8_t *p, const wValue v)
+{
+    union { wValue v; uint8_t b[SIZEOF_WVALUE]; } u;
+    u.v = v;
+    memcpy(p, u.b, SIZEOF_WVALUE);
+}
+
+#endif
+
+
 /* Pick the definition that goes with the endianness of your computer.
    (Yucko, sorry.)
    I've used the first one on PowerPC Mac (big-endian) and the second
    on Linux x86 (little-endian), with gcc both times.  XXX recode this
    without the machine-dependent bitfields instead. */
-#if 0
+#if WREN_BIG_ENDIAN_DATA
 # define PRIM_HEADER(opcode, arity, name_length) \
     a_primitive<<6, opcode, ((arity)<<4|(name_length))
 #else
@@ -27,10 +117,6 @@ enum {
     (opcode)<<2|a_primitive, 0, ((name_length)<<4|(arity))
 #endif
 
-/* Type of a Wren-language value. */
-typedef intptr_t Value;
-/* and how to printf it */
-#define PRVAL "ld"
 
 /* Error state */
 
@@ -76,10 +162,10 @@ static unsigned char the_store[store_capacity];
 #define store_end  (the_store + store_capacity)
 
 /* We make compiler_ptr accessible as a global variable to Wren code;
-   it's located in the first Value cell of the_store. (See
+   it's located in the first wValue cell of the_store. (See
    primitive_dictionary, below.) This requires that
-   sizeof (unsigned char *) == sizeof (Value). Sorry!
-   (If you change Value to a short type, then change compiler_ptr to a
+   sizeof (unsigned char *) == sizeof (wValue). Sorry!
+   (If you change wValue to a short type, then change compiler_ptr to a
    short offset from the_store instead of a pointer type.
    */
 #define compiler_ptr   (((unsigned char **)the_store)[0])
@@ -155,7 +241,7 @@ static void dump (const unsigned char *dict,
 
 /* The virtual machine */
 
-typedef unsigned char Instruc;
+typedef uint8_t Instruc;
 
 enum {
     HALT,
@@ -218,8 +304,8 @@ static void dump_dictionary (void)
 
 /* Call to C functions; see bind_c_function and CCALL prim */
 
-typedef Value (*apply_t)();
-static long ccall(apply_t fn, Value *args, unsigned arity)
+typedef wValue (*apply_t)();
+static long ccall(apply_t fn, wValue *args, unsigned arity)
 {
   switch (arity)
   {
@@ -251,16 +337,16 @@ static long ccall(apply_t fn, Value *args, unsigned arity)
 
 /* Run VM code starting at 'pc', with the stack allocated the space between
    'end' and dictionary_ptr. Return the result on top of the stack. */
-static Value run (Instruc *pc, const Instruc *end)
+static wValue run (Instruc *pc, const Instruc *end)
 {
     /* Stack pointer and base pointer 
-       Initially just above the first free aligned Value cell below
+       Initially just above the first free aligned wValue cell below
        the dictionary. */
-    Value *sp = (Value *)(((uintptr_t )dictionary_ptr) & ~(sizeof(Value) - 1));
-    Value *bp = sp;
+    wValue *sp = (wValue *)(((uintptr_t )dictionary_ptr) & ~(sizeof(wValue) - 1));
+    wValue *bp = sp;
 
 #define need(n) \
-    if (((unsigned char *)sp - ((n) * sizeof(Value))) < end) goto stack_overflow; else 
+    if (((unsigned char *)sp - ((n) * sizeof(wValue))) < end) goto stack_overflow; else 
 
     for (;;)
     {
@@ -277,18 +363,18 @@ static Value run (Instruc *pc, const Instruc *end)
 
             case PUSH: 
                 need(1);
-                *--sp = *(Value*)pc;
-                pc += sizeof(Value);
+                *--sp = fetch_wV(pc);
+                pc += sizeof(wValue);
                 break;
             case PUSHW:
                 need(1);
-                *--sp = *(short *)pc;
-                pc += sizeof(short);
+                *--sp = fetch_2i(pc);
+                pc += sizeof(int16_t);
                 break;
             case PUSHB:
                 need(1);
-                *--sp = *(signed char *)pc;
-                pc += sizeof(signed char);
+                *--sp = *(int8_t *)pc;
+                pc += sizeof(int8_t);
                 break;
             case POP:
                 ++sp;
@@ -296,20 +382,20 @@ static Value run (Instruc *pc, const Instruc *end)
 
             case PUSH_STRING:
                 need(1);
-                *--sp = (Value)pc;
+                *--sp = (wValue)pc;
                 /* N.B. this op is slower the longer the string is! */
                 pc += strlen((const char *)pc) + 1;
                 break;
 
             case GLOBAL_FETCH:
                 need(1);
-                *--sp = *(Value *)(the_store + *(unsigned short *)pc);
-                pc += sizeof(unsigned short);
+                *--sp = fetch_wV(the_store + fetch_2u(pc));
+                pc += sizeof(uint16_t);
                 break;
 
             case GLOBAL_STORE:
-                *(Value *)(the_store + *(unsigned short *)pc) = sp[0];
-                pc += sizeof(unsigned short);
+                write_wV(the_store + fetch_2u(pc), sp[0]);
+                pc += sizeof(uint16_t);
                 break;
 
             case LOCAL_FETCH_0:
@@ -346,13 +432,13 @@ static Value run (Instruc *pc, const Instruc *end)
                    */ 
             case TCALL: /* Known tail call. */
                 {
-                    unsigned char n = pc[0];
-                    /* XXX portability: this assumes two unsigned shorts fit in a Value */
-                    Value frame_info = sp[n];
-                    memmove((bp+1-n), sp, n * sizeof(Value));
+                    uint8_t n = pc[0];
+                    /* XXX portability: this assumes two unsigned shorts fit in a wValue */
+                    wValue frame_info = sp[n];
+                    memmove((bp+1-n), sp, n * sizeof(wValue));
                     sp = bp - n;
                     sp[0] = frame_info;
-                    pc = the_store + *(unsigned short *)(pc + 1);
+                    pc = the_store + fetch_2u(pc + 1);
                 }
                 break;
             case CALL:
@@ -369,11 +455,11 @@ static Value run (Instruc *pc, const Instruc *end)
                        (Maybe that expense would be worth incurring, though, for the
                        sake of smaller compiled code.)
                        */
-                    const Instruc *cont = pc + 1 + sizeof(unsigned short);
+                    const Instruc *cont = pc + 1 + sizeof(uint16_t);
                     while (*cont == JUMP)
                     {
                         ++cont;
-                        cont += *(unsigned short *)cont;
+                        cont += fetch_2u(cont);
                     }
                     if (*cont == RETURN)
                     {
@@ -386,32 +472,33 @@ static Value run (Instruc *pc, const Instruc *end)
                         need(1);
                         --sp;
                         {
-                            /* XXX portability: this assumes two unsigned shorts fit in a Value */
-                            unsigned short *f = (unsigned short *)sp;
-                            f[0] = (unsigned char *)bp - the_store;
+                            /* XXX portability: this assumes two uint16_t fit in a wValue
+                            ** and they the alignment is natural for both values; seems ok */
+                            uint16_t *f = (uint16_t *)sp;
+                            f[0] = (uint8_t *)bp - the_store;
                             f[1] = cont - the_store;
                             bp = sp + pc[0];
                         }
-                        pc = the_store + *(unsigned short *)(pc + 1);
+                        pc = the_store + fetch_2u(pc + 1);
                     }
                 }
                 break;
 
             case CCALL:
                 {
-                    unsigned char n = *pc++;
+                    uint8_t n = *pc++;
                     need(1);
-                    *--sp = ccall((apply_t )(*(Value*)pc), bp + 1 - n, n);
-                    pc += sizeof(Value);
+                    *--sp = ccall((apply_t )fetch_wV(pc), bp + 1 - n, n);
+                    pc += sizeof(wValue);
                 }
                 break; /* XXX eliminate RETURN op always generated after CCALL by failling through... */
 
             case RETURN:
                 {
-                    Value result = sp[0];
+                    wValue result = sp[0];
                     unsigned short *f = (unsigned short *)(sp + 1);
                     sp = bp;
-                    bp = (Value *)(the_store + f[0]);
+                    bp = (wValue *)(the_store + f[0]);
                     pc = the_store + f[1];
                     sp[0] = result;
                 }
@@ -419,13 +506,13 @@ static Value run (Instruc *pc, const Instruc *end)
 
             case BRANCH:
                 if (0 == *sp++)
-                    pc += *(unsigned short *)pc;
+                    pc += fetch_2u(pc);
                 else
-                    pc += sizeof(unsigned short);
+                    pc += sizeof(uint16_t);
                 break;
 
             case JUMP:
-                pc += *(unsigned short *)pc;
+                pc += fetch_2u(pc);
                 break;
 
             case ADD:  sp[1] += sp[0]; ++sp; break;
@@ -461,16 +548,16 @@ static Value run (Instruc *pc, const Instruc *end)
 
             case FETCH_BYTE:
                    /* XXX boundschecking */
-                   sp[0] = *(unsigned char *)(sp[0]);;
+                   sp[0] = *(uint8_t *)(sp[0]);
                    break;
 
             case PEEK:
-                   sp[0] = *(Value *)(sp[0]);;
+                   sp[0] = fetch_wV((uint8_t *)sp[0]);
                    break;
 
             case POKE:
-                   *(Value *)(sp[1]) = sp[0];
-                   ++sp;
+                   write_wV((uint8_t *)sp[1], sp[0]);
+                   ++sp;                    // e: just one value popped
                    break;
 
             default: assert(0);
@@ -500,7 +587,7 @@ static void gen (Instruc opcode)
     }
 }
 
-static void gen_ubyte (unsigned char b)
+static void gen_ubyte (uint8_t b)
 {
     if (loud)
         printf("ASM: %"PRVAL"\tubyte %u\n", compiler_ptr - the_store, b);
@@ -508,24 +595,43 @@ static void gen_ubyte (unsigned char b)
         *compiler_ptr++ = b;
 }
 
-static void gen_ushort (unsigned short u)
+static void gen_sbyte (int8_t b)
+{
+    if (loud)
+        printf("ASM: %"PRVAL"\tsbyte %d\n", compiler_ptr - the_store, b);
+    if (available(1))
+        *(int8_t *)compiler_ptr++ = b;
+}
+
+static void gen_ushort (uint16_t u)
 {
     if (loud)
         printf("ASM: %"PRVAL"\tushort %u\n", compiler_ptr - the_store, u);
     if (available(sizeof u))
     {
-        *(unsigned short *)compiler_ptr = u;
+        write_2u(compiler_ptr, u);
         compiler_ptr += sizeof u;
     }
 }
 
-static void gen_value (Value v)
+static void gen_sshort (int16_t u)
+{
+    if (loud)
+        printf("ASM: %"PRVAL"\tsshort %d\n", compiler_ptr - the_store, u);
+    if (available(sizeof u))
+    {
+        write_2i(compiler_ptr, u);
+        compiler_ptr += sizeof u;
+    }
+}
+
+static void gen_value (wValue v)
 {
     if (loud)
         printf("ASM: %"PRVAL"\tvalue %"PRVAL"\n", compiler_ptr - the_store, v);
     if (available(sizeof v))
     {
-        *(Value *)compiler_ptr = v;
+        write_wV(compiler_ptr, v);
         compiler_ptr += sizeof v;
     }
 }
@@ -541,7 +647,7 @@ static void resolve (Instruc *ref)
 {
     if (loud)
         printf("ASM: %"PRVAL"\tresolved: %"PRVAL"\n", ref - the_store, compiler_ptr - ref);
-    *(unsigned short *)ref = compiler_ptr - ref;
+    write_2u(ref, compiler_ptr - ref);
 }
 
 static void block_prev (void)
@@ -554,7 +660,7 @@ static void block_prev (void)
 enum { unread = EOF - 1 };
 static int input_char = unread;
 static int token;
-static Value token_value;
+static wValue token_value;
 static char token_name[16];
 
 static int ch (void)
@@ -604,7 +710,7 @@ again:
 
                 if (digit_count == 0)
                     complain("Invalid Hex Number");
-                else if (digit_count > 2*sizeof(Value)) {  // allow all bits used for hex entry
+                else if (digit_count > 2*sizeof(wValue)) {  // allow all bits used for hex entry
                     complain("Numeric overflow");
                 }
 
@@ -749,10 +855,10 @@ static void parse_factor (void)
         case PUSH:
             if (token_value < 128 && token_value >= -128) {
                 gen(PUSHB);
-                gen_ubyte(token_value & 0xff);
+                gen_sbyte((int8_t )token_value);
             } else if (token_value < 32768 && token_value >= -32768) {
                 gen(PUSHW);
-                gen_ushort(token_value & 0xffff);
+                gen_sshort((int16_t )token_value);
             } else {
                 gen(PUSH);
                 gen_value(token_value);
@@ -856,7 +962,7 @@ static void parse_factor (void)
             // If previous instruction is a value, then just negate it.
             if (prev_instruc) {
                 if (*prev_instruc == PUSH)
-                    ((Value *)compiler_ptr)[-1] *= -1;
+                    ((wValue *)compiler_ptr)[-1] *= -1;
                 else if (*prev_instruc == PUSHB)
                     ((signed char *)compiler_ptr)[-1] *= -1;
                 else if (*prev_instruc == PUSHW)
@@ -924,7 +1030,7 @@ static void parse_expr (int precedence)
         {
             if (prev_instruc && *prev_instruc == GLOBAL_FETCH)
             {
-                unsigned short addr = *(unsigned short *)(prev_instruc + 1);
+                uint16_t addr = fetch_2u(prev_instruc + 1);
                 compiler_ptr = prev_instruc;
                 parse_expr(l);
                 gen(GLOBAL_STORE);
@@ -949,7 +1055,7 @@ static void parse_done (void)
         complain("Syntax error: unexpected token");
 }
 
-static Value scratch_expr (void)
+static wValue scratch_expr (void)
 {
     Instruc *start = compiler_ptr;
     parse_expr(-1);
@@ -964,25 +1070,23 @@ static Value scratch_expr (void)
 
 static void run_expr (void)
 {
-    Value v = scratch_expr();
+    wValue v = scratch_expr();
     if (!complaint)
         printf("%"PRVAL"\n", v);
 }
 
 static void run_let (void)
 {
-    if (expect('a', "Expected identifier")
-            && available(sizeof(Value)))
+    if (expect('a', "Expected identifier") && available(sizeof(wValue)))
     {
         unsigned char *cell = compiler_ptr;
         gen_value(0);
-        bind(token_name, strlen(token_name),
-                a_global, cell - the_store, 0);
+        bind(token_name, strlen(token_name), a_global, cell - the_store, 0);
         next();
         if (expect('=', "Expected '='"))
         {
             next();
-            *(Value*)cell = scratch_expr();
+            write_wV(cell, scratch_expr());
         }
     }
 }
@@ -1097,7 +1201,7 @@ static void read_eval_print_loop (void)
     printf("\n");
 }
 
-static Value tstfn2 (Value a1, Value a2)
+static wValue tstfn2 (wValue a1, wValue a2)
 {
     printf("tstfn2: %"PRVAL"\t%"PRVAL"\n", a1, a2);
     return a1 - a2;
@@ -1108,21 +1212,21 @@ static void bind_c_function (const char *name, apply_t fn, const unsigned arity)
     (void )bind(name, strlen(name), a_procedure, compiler_ptr - the_store, arity);
     gen(CCALL);
     gen_ubyte(arity);
-    gen_value((Value )fn);
+    gen_value((wValue )fn);
     gen(RETURN);
 }
 
 int main ()
 {
-    ((Value *)the_store)[2] = (Value )the_store;
-    ((Value *)the_store)[3] = (Value )store_end;
+    ((wValue *)the_store)[2] = (wValue )the_store;
+    ((wValue *)the_store)[3] = (wValue )store_end;
     dictionary_ptr = store_end;
-    bind("cp", 2, a_global, 0 * sizeof(Value), 0);
-    bind("dp", 2, a_global, 1 * sizeof(Value), 0);
-    bind("c0", 2, a_global, 2 * sizeof(Value), 0);
-    bind("d0", 2, a_global, 3 * sizeof(Value), 0);
+    bind("cp", 2, a_global, 0 * sizeof(wValue), 0);
+    bind("dp", 2, a_global, 1 * sizeof(wValue), 0);
+    bind("c0", 2, a_global, 2 * sizeof(wValue), 0);
+    bind("d0", 2, a_global, 3 * sizeof(wValue), 0);
 
-    compiler_ptr = the_store + (4 * sizeof(Value));
+    compiler_ptr = the_store + (4 * sizeof(wValue));
 
     bind_c_function("tstfn2", tstfn2, 2);
 
