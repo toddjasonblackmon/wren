@@ -1,0 +1,41 @@
+release_notes.txt
+
+
+===============================================================================
+PR#3 2018-10-07
+
+Added CCALL to disasm.wren.
+
+Fixed an issue with unaligned access to code space...
+
+The compiler is generating unaligned data in the instruction stream, and the 
+interpreter wasn't paying attention to that. This is OK on x86 & Cortex-M3/4/7, 
+but will fail on other architectures, such as Cortex-M0, and ARM9.
+
+The fix for accesses in the instruction stream is coded, and seems to work. 
+The Makefile has some new targets for testing, and for generating assembly 
+code to evalute the imapct of the chnages (miminal or no impact with -Os).
+
+There remains a  potential unaligned access to the fields of the dictionary 
+header. Changes to the header would make fixing this easier since we could use 
+fetch_2u() to get the binding. This could also eliminate the endianess issue
+described in a comment above PRIM_HEADER(). See e_notes.txt for details.
+The dictionary fix touches a lot of code, so is deferred to a future PR.
+
+===============================================================================
+PR#2 2018-10-03
+
+Added a new CCALL opcode to call C functions, and a bind_c_function() function
+to add new external C functions. Cleaned up code style/formatting. Added a 
+tstfn2 C call to test new features. 
+
+===============================================================================
+PR#1 2018-09-30
+
+Use intptr_t so Values are at least as big as a pointer; this fixes a crash 
+when trying to run wren on LP64 targets. Added PRVAL macro for printf so a 
+platform dependent format is available to match the size of Values. Adjusted 
+offsets to use sizeof(Value) instead of constants. Added a .gitignore file.
+
+===============================================================================
+===============================================================================
