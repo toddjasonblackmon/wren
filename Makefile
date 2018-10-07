@@ -4,7 +4,7 @@ all: wren
 
 clean:
 	rm -f *.o wren wrenb wrenl wrenu examples.out
-	rm -R *.dSYM
+	rm -fR *.dSYM
 
 wren: wren.o
 

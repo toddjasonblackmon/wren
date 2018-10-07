@@ -69,6 +69,7 @@ fun dis_op val =
 	else if val = 0x22 then  puts 'POKE'
 	else if val = 0x23 then  puts 'LOCAL_FETCH_0'
 	else if val = 0x24 then  puts 'LOCAL_FETCH_1'
+	else if val = 0x27 then (puts 'CCALL w/'; putd (dis_value 1); puts ' 0x'; putx (dis_value 4); puts ' 0x'; putx (dis_value 4))
 	else (puts 'UNKNOWN: ' ; putx val; dis_pc : 0)
 
 		
