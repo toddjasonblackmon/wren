@@ -1,0 +1,23 @@
+# the executable
+wren
+wrena
+wrenu
+
+# object files
+*.o
+
+# intermediate files
+*.i
+*.s
+*.bc
+*.dSYM
+
+# test files
+examples.out
+
+# dev cruft
+scrap.txt
+*.x
+
+# macOS cruft
+.DS_Store

@@ -1,0 +1,80 @@
+release_notes.txt
+
+See LICENSE file for software license, and the end of this file for credits.
+
+===============================================================================
+PR#5 2018-10-08
+
+Add LICENSE file, update README
+
+===============================================================================
+PR#4 2018-10-08
+
+Fixed an issue with unaligned access to dictionary space...
+
+Moved procedures' arity to code space, and re-arranged dictionary Header to 
+combine primitive arity and opcode in the binding slot. This reduces overall 
+memory usage because arities can be removed from procedure call sites.
+Furthermore, with re-arranged dictionary Header, the PRIM_HEADER() macro is no
+longer endian dependent. Using fetch_2u() to get the binding, and write_2u() 
+to set the binding in the Header fixes the unaligned access issue.
+
+Optimization: since there are no zero length names, name_length is now stored
+in the Header as (length-1); max length is now 16 character (rather than 15).
+
+Optimization: CCALLs are now inlined, made possible now that the kind field is 
+bigger, so CCALLs have their own Kind.
+
+Fixed boot.wren and disasm.wren for changes to Header, CALL, TCALL, and CCALL.
+
+===============================================================================
+PR#3 2018-10-07
+
+Added CCALL to disasm.wren.
+
+Fixed an issue with unaligned access to code space...
+
+The compiler is generating unaligned data in the instruction stream, and the 
+interpreter wasn't paying attention to that. This is OK on x86 & Cortex-M3/4/7, 
+but will fail on other architectures, such as Cortex-M0, and ARM9.
+
+The fix for accesses in the instruction stream is coded, and seems to work. 
+The Makefile has some new targets for testing, and for generating assembly 
+code to evaluate the impact of the changes (minimal or no impact with -Os).
+
+There remains a  potential unaligned access to the fields of the dictionary 
+header. Changes to the header would make fixing this easier since we could use 
+fetch_2u() to get the binding. This could also eliminate the endianess issue
+described in a comment above PRIM_HEADER(). See e_notes.txt for details.
+The dictionary fix touches a lot of code, so is deferred to a future PR.
+
+===============================================================================
+PR#2 2018-10-03
+
+Added a new CCALL opcode to call C functions, and a bind_c_function() function
+to add new external C functions. Cleaned up code style/formatting. Added a 
+tstfn2 C call to test new features. 
+
+===============================================================================
+PR#1 2018-09-30
+
+Use intptr_t so Values are at least as big as a pointer; this fixes a crash 
+when trying to run wren on LP64 targets. Added PRVAL macro for printf so a 
+platform dependent format is available to match the size of Values. Adjusted 
+offsets to use sizeof(Value) instead of constants. Added a .gitignore file.
+
+===============================================================================
+
+Above PRs
+Improvements by Doug Currie
+https://github.com/dcurrie/wren
+
+2010-05-01
+Improvements by Todd Jason Blackmon
+https://github.com/toddjasonblackmon/wren
+
+2008-08-13 (committed to github) originally 2007
+Created by Darius Bacon <darius@wry.me>
+https://github.com/darius/wren
+
+===============================================================================
