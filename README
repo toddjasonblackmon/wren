@@ -1,8 +1,6 @@
 Quick start:
 
-1. Edit the configuration defs at the top of wren.c. It's currently
-   configured for a little-endian machine. I know, it shouldn't be
-   necessary.
+1. Edit the configuration defs at the top of wren.c and in wren.h
 
 2. make
 
@@ -15,12 +13,14 @@ Quick start:
    Notice how much faster it is than Python! Gee whiz.
 
 6. Look over the examples file to get an idea what you can do.
-   (It was mainly written as a basic testsuite though.)
+   (It was mainly written as a basic test suite though.)
 
-7. Look over TODO to see all the stuff not done.
+7. Look over (Todd's) TODO to see all the stuff not done.
+
+8. Look over (Doug's) e_notes.txt for bugs and planned tasks.
 
 One thing that's probably not obvious is that you can define arrays
-or other dynamic datastructures in a Wren program. The thing is, you
+or other dynamic data structures in a Wren program. The thing is, you
 have to use peek and poke. But you can allocate the space for it so
 the interpreter doesn't step all over it, by incrementing the 'cp'
 variable (short for compiler_ptr, its name at the C level). Same 
@@ -30,23 +30,7 @@ size.
 
 Have fun!
 
+Note:
 
-Copyright (c) 2007 Darius Bacon <darius@wry.me>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+Some of the examples, such as boot.wren and disasm.wren are written
+assuming a little-endian machine. This should be fixed soon.
