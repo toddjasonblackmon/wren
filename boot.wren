@@ -26,6 +26,8 @@ fun dump_putx u w =     # Print unsigned hex number with width w
   if 1 < w then dump_putx (srl u 4) (w-1) else 0;
   putx_dig u
 
+# Note that everything that uses peek in this code is assuming little endian
+
 # Dump format
 # 00000000: 0000 0000 0000 0000 0000 0000 0000 0000  AAAAAAAAAAAAAAAA
 
@@ -72,13 +74,14 @@ fun dump addr len =
 		put_hex_line addr 16;
 		put_ascii addr 16;
 		if (16 = len) then cr else dump (addr+16) (len-16))
+
 # Lookup
 
 fun putcs n addr = 
 	putc *addr;
 	if 1<n then putcs (n-1) (addr+1) else 0
 
-fun hdr_str_len addr = srl (peek (addr+2)) 4 & 0x0f
+fun hdr_str_len addr = ((peek (addr+2)) & 0x0f) + 1
 fun hdr_str addr = addr+3
 
 fun put_name hdr_addr =
@@ -124,20 +127,21 @@ fun find_help str addr =
 
 fun get_xt addr = 
 	if (addr = 0) then 0
-	else (srl (peek (addr)) 2 & 0x3fff) + c0
+	else (0xffff & peek addr) + c0
 
 # Returns xt of found string, or 0 otherwise
 fun find str = get_xt (find_help str dp)
 
 fun not x = -(x+1)
 
-fun byte_mask n = not (sla 0xff (n*8))
-fun byte_or orig byte new = orig & (byte_mask byte) | (sla (new & 0xff) (byte*8))
-fun aligned addr = addr & (not 0x03)
-fun offset addr = addr & 0x03
-
-fun cpoke addr x = 
-	poke (aligned addr) (byte_or (peek (aligned addr)) (offset addr) x)
+# Assumes wValues are 4 bytes (not true on LP64); assumes little endian
+#fun byte_mask n = not (sla 0xff (n*8))
+#fun byte_or orig byte new = orig & (byte_mask byte) | (sla (new & 0xff) (byte*8))
+#fun aligned addr = addr & (not 0x03)
+#fun offset addr = addr & 0x03
+#
+#fun cpoke addr x = 
+#	poke (aligned addr) (byte_or (peek (aligned addr)) (offset addr) x)
 
 # This isn't reliable. Probably need to hard wire this anyways
 ## Dangerous stuff here, don't play unless you understand!

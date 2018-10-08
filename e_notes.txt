@@ -1,8 +1,6 @@
 
 Bugs:
 
-Need to fix disasm.wren for changes to Header, CALL, TCALL, and CCALL
-
 TBD
 
 Sandboxing:
@@ -28,8 +26,14 @@ the locals counts can go in that same byte.
 
 
 Readline support, e.g., https://github.com/Helius/microrl/network
+(but microrl wants to prompt after every newline; need to be smarter)
 
 ===========================================================================
+
+
+2018-10-07
+
+cat boot.wren disasm.wren dasm_test.wren | ./wren
 
 2018-10-07
 

@@ -19,6 +19,8 @@ in the Header as (length-1); max length is now 16 character (rather than 15).
 Optimization: CCALLs are now inlined, made possible now that the kind field is 
 bigger, so CCALLs have their own Kind.
 
+Fixed boot.wren and disasm.wren for changes to Header, CALL, TCALL, and CCALL.
+
 ===============================================================================
 PR#3 2018-10-07
 
