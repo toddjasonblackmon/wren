@@ -2,7 +2,7 @@ release_notes.txt
 
 
 ===============================================================================
-PR#4 2018-10-xx
+PR#4 2018-10-08
 
 Fixed an issue with unaligned access to dictionary space...
 
@@ -34,7 +34,7 @@ but will fail on other architectures, such as Cortex-M0, and ARM9.
 
 The fix for accesses in the instruction stream is coded, and seems to work. 
 The Makefile has some new targets for testing, and for generating assembly 
-code to evalute the imapct of the chnages (miminal or no impact with -Os).
+code to evaluate the impact of the changes (minimal or no impact with -Os).
 
 There remains a  potential unaligned access to the fields of the dictionary 
 header. Changes to the header would make fixing this easier since we could use 
@@ -67,7 +67,7 @@ https://github.com/dcurrie/wren
 Improvements by Todd Jason Blackmon
 https://github.com/toddjasonblackmon/wren
 
-2008-08-13 (commited to github) originally 2007
+2008-08-13 (committed to github) originally 2007
 Created by Darius Bacon <darius@wry.me>
 https://github.com/darius/wren
 

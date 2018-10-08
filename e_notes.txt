@@ -1,6 +1,14 @@
 
 Bugs:
 
+disasm.wren and boot.wren assumes little endian; maybe we need peek2
+
+boot.wren could use * (i.e., peek_byte) in place of peek in a couple places
+
+Try to eliminate get_xt (it adds c0 and isn't really necessary)
+
+Look at uses of c0; see Sandboxing below
+
 TBD
 
 Sandboxing:
