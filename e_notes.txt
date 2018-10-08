@@ -1,9 +1,15 @@
 
 Bugs:
 
-There remains a  potential unaligned access to the fields of the dictionary header. 
-See below re: changes to the header that would make fixing this easier since we 
-could use fetch_2u() to get the binding.
+disasm.wren and boot.wren assumes little endian; maybe we need peek2
+
+boot.wren could use * (i.e., peek_byte) in place of peek in a couple places
+
+Try to eliminate get_xt (it adds c0 and isn't really necessary)
+
+Look at uses of c0; see Sandboxing below
+
+TBD
 
 Sandboxing:
 
@@ -18,45 +24,44 @@ Replace assert() with something that longjmps to reset the world
 
 Extending:
 
-Added CCALLs; would be nicer if they had their own Kind so they could be inlined;
-this would require extending the kind field from 2 to 3 bits
-
 To add function locals (e.g., "let xxx : yyy in ...") we'd need an additional field
-in dictionary for the number of locals; it would be used along with arity to allocate
-and drop stack cells on function call and tail call. The locals would live after the
-arguments on the stack.
+for the number of locals; it would be used along with arity to allocate and drop 
+stack cells on function call and tail call. The locals would live after the
+arguments on the stack. 
 
-We could avoid increasing the header size for the locals count and extra kind bit by
-moving the arity and locals counts to the first byte of the function body in code space.
-struct Header {
-    uint16_t binding:    16;
-    uint8_t  kind:        3; // 4
-    uint8_t  name_length: 5; // 4
-    uint8_t  name[0];
-} __attribute__((packed));  /* XXX gcc dependency */
-At start of function:
-    uint8_t arity:        4;
-    uint8_t locals:       4;
-This would also mean that the arity compiled into the code at the calling site is not
-necessary, saving one byte per call site.
-To avoid the endianness issue described in a comment above PRIM_HEADER(), we could instead:
-struct Header {
-    uint16_t binding;    // or (arity << 8) | opcode
-    uint8_t  kind_nmlen; // is (kind  << 4) | name_length
-    uint8_t  name[0];
-};
-and defined accessors for kind and name_length.
-Since prims don't have any code, we'll need to put its arity in the binding field along with 
-the opcode.
+Now that we've moved the arity to the first byte of the function body in code space,
+the locals counts can go in that same byte.
 
-Optimization: since there are no zero length names, name_length could be length - 1, giving 
-us up to 16 character names (rather than 15).
 
 Readline support, e.g., https://github.com/Helius/microrl/network
+(but microrl wants to prompt after every newline; need to be smarter)
 
 ===========================================================================
 
+
 2018-10-07
+
+cat boot.wren disasm.wren dasm_test.wren | ./wren
+
+2018-10-07
+
+after dictionary and header changes...
+
+wren e$ cat boot.wren disasm.wren | ./wren
+> > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > 
+
+Library Loaded
+2863 bytes (69%) remaining.
+0
+> > > > > > > > > 
+
+Disassembler Loaded
+1474 bytes (35%) remaining.
+0
+> 
+wren e$ 
+
+before dictionary and header changes...
 
 wren e$ cat boot.wren disasm.wren | ./wren
 > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > > 
@@ -70,5 +75,28 @@ Disassembler Loaded
 1372 bytes (33%) remaining.
 0
 > 
+wren e$ 
+
+wren e$ ./benchmark
+> > 9227465
+> 
+
+real    0m0.449s
+user    0m0.445s
+sys 0m0.002s
+wren e$ ./benchmark
+> > 9227465
+> 
+
+real    0m0.449s
+user    0m0.445s
+sys 0m0.002s
+wren e$ ./benchmark
+> > 9227465
+> 
+
+real    0m0.452s
+user    0m0.447s
+sys 0m0.002s
 wren e$ 
 

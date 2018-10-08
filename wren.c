@@ -1,3 +1,13 @@
+/** @file wren.h
+*
+* @brief Wren interpreter
+*
+* @par
+* @copyright Copyright (c) 2007 Darius Bacon <darius@wry.me>
+* @copyright Copyright (c) 2018 Doug Currie, Londonderry, NH, USA
+* @note See LICENSE file for licensing terms.
+*/
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -104,20 +114,6 @@ static inline void write_wV (uint8_t *p, const wValue v)
 #endif
 
 
-/* Pick the definition that goes with the endianness of your computer.
-   (Yucko, sorry.)
-   I've used the first one on PowerPC Mac (big-endian) and the second
-   on Linux x86 (little-endian), with gcc both times.  XXX recode this
-   without the machine-dependent bitfields instead. */
-#if WREN_BIG_ENDIAN_DATA
-# define PRIM_HEADER(opcode, arity, name_length) \
-    a_primitive<<6, opcode, ((arity)<<4|(name_length))
-#else
-# define PRIM_HEADER(opcode, arity, name_length) \
-    (opcode)<<2|a_primitive, 0, ((name_length)<<4|(arity))
-#endif
-
-
 /* Error state */
 
 static const char *complaint = NULL;
@@ -145,31 +141,70 @@ static void complain (const char *msg)
    the simplest solution.)
 
    At runtime, the stack grows down from the bottom of the dictionary
-   (but 32-bit word-aligned). 
+   (but wValue-aligned). 
    */
 
-typedef enum { a_primitive, a_procedure, a_global, a_local } NameKind;
+static uint8_t the_store[store_capacity];
+#define store_end  (the_store + store_capacity)
+
+typedef enum { a_primitive, a_procedure, a_global, a_local, a_cfunction } NameKind;
 typedef struct Header Header;
 struct Header {
-    unsigned kind:        2;
-    unsigned binding:    14;
-    unsigned arity:       4;
-    unsigned name_length: 4;
-    unsigned char name[0];
+    uint16_t binding;   // or for primintives, uint8_t arity; uint8_t opcode
+    uint8_t  kind_lnm1; // (kind << 4) | (name_length - 1)
+    uint8_t  name[0];
 } __attribute__((packed));  /* XXX gcc dependency */
 
-static unsigned char the_store[store_capacity];
-#define store_end  (the_store + store_capacity)
+#define PRIM_HEADER(opcode, arity, name_length) \
+    (uint8_t )(arity), (uint8_t )(opcode), \
+    (uint8_t )(a_primitive << 4) | (((name_length) - 1u) & 0xfu)
+
+static inline NameKind get_header_kind (const uint8_t *p_header)
+{
+    return (NameKind )((((Header *)p_header)->kind_lnm1) >> 4);
+}
+
+static inline uint8_t get_header_name_length (const uint8_t *p_header)
+{
+    return ((((Header *)p_header)->kind_lnm1) & 0xfu) + 1u;
+}
+
+static inline uint16_t get_header_binding (const uint8_t *p_header)
+{
+    return fetch_2u(p_header);
+}
+
+static inline uint8_t get_header_prim_arity (const uint8_t *p_header)
+{
+    return p_header[0];
+}
+
+static inline uint8_t get_header_prim_opcode (const uint8_t *p_header)
+{
+    return p_header[1];
+}
+
+static inline void set_header_kind_lnm1 (uint8_t *p_header, NameKind kind, int name_length)
+{
+    uint8_t k = (uint8_t )kind;
+    uint8_t z = (uint8_t )(name_length - 1);
+    ((Header *)p_header)->kind_lnm1 = (k << 4) | (z & 0xfu);
+}
+
+static inline void set_header_binding (uint8_t *p_header, const uint16_t binding)
+{
+    write_2u(p_header, binding);
+}
 
 /* We make compiler_ptr accessible as a global variable to Wren code;
    it's located in the first wValue cell of the_store. (See
    primitive_dictionary, below.) This requires that
-   sizeof (unsigned char *) == sizeof (wValue). Sorry!
+   sizeof (uint8_t *) == sizeof (wValue). Sorry!
    (If you change wValue to a short type, then change compiler_ptr to a
    short offset from the_store instead of a pointer type.
    */
-#define compiler_ptr   (((unsigned char **)the_store)[0])
-#define dictionary_ptr (((unsigned char **)the_store)[1])
+#define compiler_ptr   (((uint8_t **)the_store)[0])
+#define dictionary_ptr (((uint8_t **)the_store)[1])
 
 static int available (unsigned amount)
 {
@@ -179,29 +214,26 @@ static int available (unsigned amount)
     return 0;
 }
 
-static const unsigned char *next_header (const unsigned char *header)
+static const uint8_t *next_header (const uint8_t *header)
 {
     const Header *h = (const Header *) header;
-    return h->name + h->name_length;
+    return h->name + get_header_name_length(header);
 }
 
-static Header *bind (const char *name, unsigned length, 
-        NameKind kind, unsigned binding, unsigned arity)
+static Header *bind (const char *name, unsigned length, NameKind kind, unsigned binding)
 {
     assert(name);
-    assert(length < (1<<4));
-    assert(kind <= a_local);
-    assert(binding < (1<<14));
-    assert(arity < (1<<4));
+    assert((length - 1u) < (1u << 4));
+    assert(kind <= a_cfunction);
+    assert(binding <= UINT16_MAX);
+    
     if (available(sizeof(Header) + length))
     {
         dictionary_ptr -= sizeof(Header) + length;
         {
-            Header *h = (Header *) dictionary_ptr;
-            h->kind = kind;
-            h->binding = binding;
-            h->arity = arity;
-            h->name_length = length;
+            Header *h = (Header *)dictionary_ptr;
+            set_header_kind_lnm1((uint8_t *)h, kind, (uint8_t )length);
+            set_header_binding((uint8_t *)h, (uint16_t )binding);
             memcpy(h->name, name, length);
             return h;
         }
@@ -209,30 +241,38 @@ static Header *bind (const char *name, unsigned length,
     return NULL;
 }
 
-static const Header *lookup (const unsigned char *dict, 
-        const unsigned char *end,
-        const char *name, unsigned length)
+static const Header *lookup (const uint8_t *dict, const uint8_t *end,
+                             const char *name, unsigned length)
 {
     for (; dict < end; dict = next_header(dict))
     {
-        const Header *h = (const Header *) dict;
-        if (h->name_length == length && 0 == memcmp(h->name, name, length))
+        const Header *h = (const Header *)dict;
+        if (get_header_name_length(dict) == length && 0 == memcmp(h->name, name, length))
             return h;
     }
     return NULL;
 }
 
+static inline uint8_t get_proc_arity (uint16_t binding)
+{
+    // Procedures are compiled with the first byte holding the procedure's arity
+    return the_store[binding];
+}
+
 #ifndef NDEBUG
 #if 0
-static void dump (const unsigned char *dict, 
-        const unsigned char *end)
+static void dump (const uint8_t *dict, const uint8_t *end)
 {
     for (; dict < end; dict = next_header(dict))
     {
-        const Header *h = (const Header *) dict;
+        const Header     *h = (const Header *)dict;
+        const uint8_t  nlen = get_header_name_length(dict);
+        const NameKind nknd = get_header_kind(dict);
         printf("  %*.*s\t%x %x %x\n", 
-                h->name_length, h->name_length, h->name, 
-                h->kind, h->binding, h->arity);
+                nlen, nlen, h->name, nknd, h->binding, 
+                (nknd == a_procedure || nknd == a_cfunction)
+                    ? get_proc_arity(h->binding)
+                    : nknd == a_primitive ? get_header_prim_arity(dict) : 0u);
     }
 }
 #endif
@@ -275,7 +315,7 @@ static const char *opcode_names[] = {
 };
 #endif
 
-static const unsigned char primitive_dictionary[] = 
+static const uint8_t primitive_dictionary[] = 
 {
     PRIM_HEADER(UMUL, 2, 4), 'u', 'm', 'u', 'l',
     PRIM_HEADER(UDIV, 2, 4), 'u', 'd', 'i', 'v',
@@ -346,7 +386,7 @@ static wValue run (Instruc *pc, const Instruc *end)
     wValue *bp = sp;
 
 #define need(n) \
-    if (((unsigned char *)sp - ((n) * sizeof(wValue))) < end) goto stack_overflow; else 
+    if (((uint8_t *)sp - ((n) * sizeof(wValue))) < end) goto stack_overflow; else 
 
     for (;;)
     {
@@ -432,13 +472,14 @@ static wValue run (Instruc *pc, const Instruc *end)
                    */ 
             case TCALL: /* Known tail call. */
                 {
-                    uint8_t n = pc[0];
+                    uint16_t binding = fetch_2u(pc);
+                    uint8_t n = get_proc_arity(binding);
                     /* XXX portability: this assumes two unsigned shorts fit in a wValue */
                     wValue frame_info = sp[n];
                     memmove((bp+1-n), sp, n * sizeof(wValue));
                     sp = bp - n;
                     sp[0] = frame_info;
-                    pc = the_store + fetch_2u(pc + 1);
+                    pc = the_store + binding + 1u;
                 }
                 break;
             case CALL:
@@ -455,7 +496,7 @@ static wValue run (Instruc *pc, const Instruc *end)
                        (Maybe that expense would be worth incurring, though, for the
                        sake of smaller compiled code.)
                        */
-                    const Instruc *cont = pc + 1 + sizeof(uint16_t);
+                    const Instruc *cont = pc + sizeof(uint16_t);
                     while (*cont == JUMP)
                     {
                         ++cont;
@@ -468,6 +509,8 @@ static wValue run (Instruc *pc, const Instruc *end)
                     }
                     else
                     {
+                        uint16_t binding = fetch_2u(pc);
+                        uint8_t n = get_proc_arity(binding);
                         /* This is a non-tail call. Build a new frame. */ 
                         need(1);
                         --sp;
@@ -477,21 +520,31 @@ static wValue run (Instruc *pc, const Instruc *end)
                             uint16_t *f = (uint16_t *)sp;
                             f[0] = (uint8_t *)bp - the_store;
                             f[1] = cont - the_store;
-                            bp = sp + pc[0];
+                            bp = sp + n;
                         }
-                        pc = the_store + fetch_2u(pc + 1);
+                        pc = the_store + binding + 1u;
                     }
                 }
                 break;
 
             case CCALL:
                 {
-                    uint8_t n = *pc++;
-                    need(1);
-                    *--sp = ccall((apply_t )fetch_wV(pc), bp + 1 - n, n);
-                    pc += sizeof(wValue);
+                    uint16_t binding = fetch_2u(pc);
+                    uint8_t n = get_proc_arity(binding);
+                    wValue result = ccall((apply_t )fetch_wV(the_store + binding + 1u), sp, n);
+                    if (n == 0u)
+                    {
+                        need(1);
+                        sp -= 1;
+                    }
+                    else
+                    {
+                        sp += n - 1;
+                    }
+                    sp[0] = result;
+                    pc += sizeof(uint16_t);
                 }
-                break; /* XXX eliminate RETURN op always generated after CCALL by failling through... */
+                break;
 
             case RETURN:
                 {
@@ -762,7 +815,7 @@ again:
                        the parser, if successfully parsed, it would be compiled
                        into the instruction stream right after the next opcode.
                        So just put it there -- but don't yet update compiler_ptr. */
-                    unsigned char *s = compiler_ptr + 1;
+                    uint8_t *s = compiler_ptr + 1;
                     for (; ch() != '\''; next_char())
                     {
                         if (ch() == EOF)
@@ -824,7 +877,7 @@ again:
 
 /* Parsing and compiling */
 
-static int expect (unsigned char expected, const char *plaint)
+static int expect (uint8_t expected, const char *plaint)
 {
     if (token == expected)
         return 1;
@@ -875,17 +928,17 @@ static void parse_factor (void)
         case 'a':                   /* identifier */
             {
                 const Header *h = lookup(dictionary_ptr, store_end,
-                        token_name, strlen(token_name));
+                                         token_name, strlen(token_name));
                 if (!h)
                     h = lookup(primitive_dictionary, 
-                            primitive_dictionary + sizeof primitive_dictionary,
-                            token_name, strlen(token_name));
+                                primitive_dictionary + sizeof primitive_dictionary,
+                                token_name, strlen(token_name));
                 if (!h)
                     complain("Unknown identifier");
                 else
                 {
                     next();
-                    switch (h->kind)
+                    switch (get_header_kind((uint8_t *)h))
                     {
                         case a_global:
                             gen(GLOBAL_FETCH);
@@ -904,15 +957,29 @@ static void parse_factor (void)
                             break;
 
                         case a_procedure:
-                            parse_arguments(h->arity);
-                            gen(CALL);
-                            gen_ubyte(h->arity);
-                            gen_ushort(h->binding);
+                            {
+                                uint16_t binding = get_header_binding((uint8_t *)h);
+                                parse_arguments(get_proc_arity(binding));
+                                gen(CALL);
+                                gen_ushort(binding);
+                            }
+                            break;
+
+                        case a_cfunction:
+                            {
+                                uint16_t binding = get_header_binding((uint8_t *)h);
+                                parse_arguments(get_proc_arity(binding));
+                                gen(CCALL);
+                                gen_ushort(binding);
+                            }
                             break;
 
                         case a_primitive:
-                            parse_arguments(h->arity);
-                            gen(h->binding);
+                            {
+                                uint8_t arity = get_header_prim_arity((uint8_t *)h);
+                                parse_arguments(arity);
+                                gen(get_header_prim_opcode((uint8_t *)h));
+                            }
                             break;
 
                         default:
@@ -1079,9 +1146,9 @@ static void run_let (void)
 {
     if (expect('a', "Expected identifier") && available(sizeof(wValue)))
     {
-        unsigned char *cell = compiler_ptr;
+        uint8_t *cell = compiler_ptr;
         gen_value(0);
-        bind(token_name, strlen(token_name), a_global, cell - the_store, 0);
+        bind(token_name, strlen(token_name), a_global, cell - the_store);
         next();
         if (expect('=', "Expected '='"))
         {
@@ -1099,15 +1166,19 @@ static void run_forget (void)
                 token_name, strlen(token_name));
         if (!h)
             complain("Unknown identifier");
-        else if (h->kind != a_global && h->kind != a_procedure)
-            complain("Not a definition");
+        else
+        {
+            NameKind k = get_header_kind((uint8_t *)h);
+            if (k != a_global && k != a_procedure && k != a_cfunction)
+                complain("Not a definition");
+        }
         next();
         parse_done();
         if (!complaint)
         {
-            unsigned char *cp = the_store + h->binding;
-            unsigned char *dp = 
-                (unsigned char *) next_header((const unsigned char *) h);
+            uint8_t *cp = the_store + h->binding;
+            uint8_t *dp = 
+                (uint8_t *) next_header((const uint8_t *) h);
             if (the_store <= cp && cp <= dp && dp <= store_end)
             {
                 compiler_ptr = cp;
@@ -1123,23 +1194,24 @@ static void run_fun (void)
 {
     if (expect('a', "Expected identifier"))
     {
-        unsigned char *dp = dictionary_ptr;
-        unsigned char *cp = compiler_ptr;
-        Header *f = bind(token_name, strlen(token_name),
-                a_procedure, compiler_ptr - the_store, 0);
+        uint8_t *dp = dictionary_ptr;
+        uint8_t *cp = compiler_ptr;
+        Header *f = bind(token_name, strlen(token_name), a_procedure, compiler_ptr - the_store);
+        uint8_t arity = 0u;
         next();
         if (f)
         {
-            unsigned char *dp = dictionary_ptr;
+            uint8_t *dp = dictionary_ptr;
             while (token == 'a')
             {
                 /* XXX check for too many parameters */
-                bind(token_name, strlen(token_name), a_local, f->arity++, 0);
+                bind(token_name, strlen(token_name), a_local, arity++);
                 next();
             }
             if (expect('=', "Expected '='"))
             {
                 next();
+                gen(arity);     // first "opcode" of function is arity
                 parse_expr(-1);
                 parse_done();
                 gen(RETURN);
@@ -1207,13 +1279,17 @@ static wValue tstfn2 (wValue a1, wValue a2)
     return a1 - a2;
 }
 
+static wValue tstfn0 (void)
+{
+    printf("tstfn0\n");
+    return 13;
+}
+
 static void bind_c_function (const char *name, apply_t fn, const unsigned arity)
 {
-    (void )bind(name, strlen(name), a_procedure, compiler_ptr - the_store, arity);
-    gen(CCALL);
+    (void )bind(name, strlen(name), a_cfunction, compiler_ptr - the_store);
     gen_ubyte(arity);
     gen_value((wValue )fn);
-    gen(RETURN);
 }
 
 int main ()
@@ -1221,14 +1297,15 @@ int main ()
     ((wValue *)the_store)[2] = (wValue )the_store;
     ((wValue *)the_store)[3] = (wValue )store_end;
     dictionary_ptr = store_end;
-    bind("cp", 2, a_global, 0 * sizeof(wValue), 0);
-    bind("dp", 2, a_global, 1 * sizeof(wValue), 0);
-    bind("c0", 2, a_global, 2 * sizeof(wValue), 0);
-    bind("d0", 2, a_global, 3 * sizeof(wValue), 0);
+    bind("cp", 2, a_global, 0 * sizeof(wValue));
+    bind("dp", 2, a_global, 1 * sizeof(wValue));
+    bind("c0", 2, a_global, 2 * sizeof(wValue));
+    bind("d0", 2, a_global, 3 * sizeof(wValue));
 
     compiler_ptr = the_store + (4 * sizeof(wValue));
 
     bind_c_function("tstfn2", tstfn2, 2);
+    bind_c_function("tstfn0", tstfn0, 0);
 
     read_eval_print_loop();
     return 0;

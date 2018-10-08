@@ -9,6 +9,8 @@ fun dis_string =
 	if *(dis_pc-1) = 0 then 0
 	else (putc *(dis_pc-1) ; dis_string)
 
+# dis_value assumes little endian!
+#
 fun dis_value bytes =
 	if bytes = 0 then 0
 	else (
@@ -17,16 +19,20 @@ fun dis_value bytes =
 
 fun dis_fun_lookup addr hdr =
 	if hdr < d0 then (
-		if addr = (get_xt hdr) then
+		if addr = (0xffff & peek hdr) then
 			put_name hdr
 		else
 			dis_fun_lookup addr (next_hdr hdr))
 	else (	# didn't find it, so just print address 
-		puts '0x '; putx addr)
+		puts '0x'; putx addr)
 
+fun dis_call_arity addr = *(c0 + addr)
+
+# dis_call assumes little endian!
+#
 fun dis_call =
-	puts 'TO: '; dis_fun_lookup (c0 + (*(dis_pc+2)*256 + *(dis_pc+1))) dp;
-	puts ' ARGS: '; putx *(dis_pc); dis_pc : dis_pc + 3
+	puts 'TO: '; dis_fun_lookup (0xffff & peek dis_pc) dp;
+	puts ' ARGS: '; putd (dis_call_arity (0xffff & peek dis_pc)); dis_pc : dis_pc + 2
 
 fun dis_op val =
 	dis_pc : (dis_pc+1);
@@ -69,8 +75,8 @@ fun dis_op val =
 	else if val = 0x22 then  puts 'POKE'
 	else if val = 0x23 then  puts 'LOCAL_FETCH_0'
 	else if val = 0x24 then  puts 'LOCAL_FETCH_1'
-	else if val = 0x27 then (puts 'CCALL w/'; putd (dis_value 1); puts ' 0x'; putx (dis_value 4); puts ' 0x'; putx (dis_value 4))
-	else (puts 'UNKNOWN: ' ; putx val; dis_pc : 0)
+	else if val = 0x27 then (puts 'CCALL '        ; dis_call)
+	else (puts 'UNKNOWN: 0x' ; putx val; dis_pc : 0)
 
 		
 
@@ -80,8 +86,9 @@ fun dis_help =
 
 fun dasm str =
 	dis_pc : find str;
-	cr; puts str ; puts ' '; putx dis_pc;
-	cr ;dis_help
+	cr; puts str ; puts ' arity: '; putd *dis_pc; 
+	dis_pc : (dis_pc+1); puts ' at: 0x'; putx (dis_pc - c0);
+	cr; dis_help
 
 # Nice little header
 cr;cr;puts 'Disassembler Loaded';cr;

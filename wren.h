@@ -26,14 +26,6 @@ extern "C" {
 #define WREN_UNALIGNED_ACCESS_OK (0)
 #endif
 
-/** @def WREN_BIG_ENDIAN_DATA
-* @brief non-zero configures Wren to de/encode multi-byte values in big endian format.
-* Default to the most common case: little endian.
-*/
-#ifndef WREN_BIG_ENDIAN_DATA
-#define WREN_BIG_ENDIAN_DATA (0)
-#endif
-
 /** Type of a Wren-language value. Must be capable of holding a pointer or an integer
 */
 typedef intptr_t wValue;
