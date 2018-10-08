@@ -1,6 +1,8 @@
 
 Bugs:
 
+Need to fix disasm.wren for changes to Header, CALL, TCALL, and CCALL
+
 TBD
 
 Sandboxing:
@@ -15,9 +17,6 @@ what other operations would need this check?
 Replace assert() with something that longjmps to reset the world
 
 Extending:
-
-Added CCALLs; would be nicer if they had their own Kind so they could be inlined;
-[this would require extending the kind field from 2 to 3 bits] [now it's 4 bits]
 
 To add function locals (e.g., "let xxx : yyy in ...") we'd need an additional field
 for the number of locals; it would be used along with arity to allocate and drop 

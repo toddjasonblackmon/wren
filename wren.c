@@ -147,7 +147,7 @@ static void complain (const char *msg)
 static uint8_t the_store[store_capacity];
 #define store_end  (the_store + store_capacity)
 
-typedef enum { a_primitive, a_procedure, a_global, a_local } NameKind;
+typedef enum { a_primitive, a_procedure, a_global, a_local, a_cfunction } NameKind;
 typedef struct Header Header;
 struct Header {
     uint16_t binding;   // or for primintives, uint8_t arity; uint8_t opcode
@@ -224,7 +224,7 @@ static Header *bind (const char *name, unsigned length, NameKind kind, unsigned 
 {
     assert(name);
     assert((length - 1u) < (1u << 4));
-    assert(kind <= a_local);
+    assert(kind <= a_cfunction);
     assert(binding <= UINT16_MAX);
     
     if (available(sizeof(Header) + length))
@@ -270,8 +270,9 @@ static void dump (const uint8_t *dict, const uint8_t *end)
         const NameKind nknd = get_header_kind(dict);
         printf("  %*.*s\t%x %x %x\n", 
                 nlen, nlen, h->name, nknd, h->binding, 
-                nknd == a_procedure ? get_proc_arity(h->binding)
-                                    : nknd == a_primitive ? get_header_prim_arity(dict) : 0u);
+                (nknd == a_procedure || nknd == a_cfunction)
+                    ? get_proc_arity(h->binding)
+                    : nknd == a_primitive ? get_header_prim_arity(dict) : 0u);
     }
 }
 #endif
@@ -528,12 +529,22 @@ static wValue run (Instruc *pc, const Instruc *end)
 
             case CCALL:
                 {
-                    uint8_t n = *pc++;
-                    need(1);
-                    *--sp = ccall((apply_t )fetch_wV(pc), bp + 1 - n, n);
-                    pc += sizeof(wValue);
+                    uint16_t binding = fetch_2u(pc);
+                    uint8_t n = get_proc_arity(binding);
+                    wValue result = ccall((apply_t )fetch_wV(the_store + binding + 1u), sp, n);
+                    if (n == 0u)
+                    {
+                        need(1);
+                        sp -= 1;
+                    }
+                    else
+                    {
+                        sp += n - 1;
+                    }
+                    sp[0] = result;
+                    pc += sizeof(uint16_t);
                 }
-                break; /* XXX eliminate RETURN op always generated after CCALL by failling through... */
+                break;
 
             case RETURN:
                 {
@@ -954,6 +965,15 @@ static void parse_factor (void)
                             }
                             break;
 
+                        case a_cfunction:
+                            {
+                                uint16_t binding = get_header_binding((uint8_t *)h);
+                                parse_arguments(get_proc_arity(binding));
+                                gen(CCALL);
+                                gen_ushort(binding);
+                            }
+                            break;
+
                         case a_primitive:
                             {
                                 uint8_t arity = get_header_prim_arity((uint8_t *)h);
@@ -1149,7 +1169,7 @@ static void run_forget (void)
         else
         {
             NameKind k = get_header_kind((uint8_t *)h);
-            if (k != a_global && k != a_procedure)
+            if (k != a_global && k != a_procedure && k != a_cfunction)
                 complain("Not a definition");
         }
         next();
@@ -1259,14 +1279,17 @@ static wValue tstfn2 (wValue a1, wValue a2)
     return a1 - a2;
 }
 
+static wValue tstfn0 (void)
+{
+    printf("tstfn0\n");
+    return 13;
+}
+
 static void bind_c_function (const char *name, apply_t fn, const unsigned arity)
 {
-    (void )bind(name, strlen(name), a_procedure, compiler_ptr - the_store);
+    (void )bind(name, strlen(name), a_cfunction, compiler_ptr - the_store);
     gen_ubyte(arity);
-    gen(CCALL);
-    gen_ubyte(arity);       // XXX we'll fix this 
     gen_value((wValue )fn);
-    gen(RETURN);
 }
 
 int main ()
@@ -1282,6 +1305,7 @@ int main ()
     compiler_ptr = the_store + (4 * sizeof(wValue));
 
     bind_c_function("tstfn2", tstfn2, 2);
+    bind_c_function("tstfn0", tstfn0, 0);
 
     read_eval_print_loop();
     return 0;
