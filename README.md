@@ -1,4 +1,11 @@
-Quick start:
+## wren
+
+
+Wren is an interpreter intended for use in constrained-RAM environments.
+
+Wren's RAM requirement is under 4 KB, and it supports up to 64 KB.
+
+## Quick Start
 
 1. Edit the configuration defs at the top of wren.c and in wren.h
 
@@ -15,7 +22,7 @@ Quick start:
 6. Look over the examples file to get an idea what you can do.
    (It was mainly written as a basic test suite though.)
 
-7. Look over (Todd's) TODO to see all the stuff not done.
+7. Look over (Darius's) TODO to see all the stuff not done.
 
 8. Look over (Doug's) e_notes.txt for bugs and planned tasks.
 
@@ -30,7 +37,11 @@ size.
 
 Have fun!
 
-Note:
+### Notes
+
+Todd's NOTES explain the Wren Grammar and some interpreter features.
+
+See LICENSE file for software license, and the end of release_notes.txt for credits.
 
 Some of the examples, such as boot.wren and disasm.wren are written
 assuming a little-endian machine. This should be fixed soon.
